@@ -102,7 +102,7 @@ sub erase
       next if tied $obj->{$member};
 
       my $def = $members->{$member};
-      my $item_classdef = $storage->{schema}{$def->{class}};
+      my $item_classdef = $storage->{schema}{classes}{$def->{class}};
       my $table = $item_classdef->{table} || $def->{class};
       my $item_col = $def->{coll};
       my $slot_col = $def->{slot};
@@ -164,11 +164,11 @@ sub prefetch
    while (my $item = $cursor->current)
    {
       my ($coll_id, $slot) = $cursor->residue;
-      $prefetch->{$coll_id}[$slot] = $item;
+      $prefetch->{$coll_id}{$slot} = $item;
       $cursor->next;
    }
 }
 
-$Tangram::Schema::TYPES{iarray} = Tangram::IntrHash->new;
+$Tangram::Schema::TYPES{ihash} = Tangram::IntrHash->new;
 
 1;

@@ -122,7 +122,7 @@ sub erase
 		}
 		else
 		{
-			my $item_classdef = $storage->{schema}{$def->{class}};
+			my $item_classdef = $storage->{schema}{classes}{$def->{class}};
 			my $table = $item_classdef->{table} || $def->{class};
 			my $item_col = $def->{coll};
 			my $slot_col = $def->{slot};
@@ -166,14 +166,7 @@ sub prefetch
 	my ($self, $storage, $def, $coll, $class, $member, $filter) = @_;
 
 	my $ritem = $storage->remote($def->{class});
-
-	my $ids = $storage->my_select_data( cols => [ $coll->{id} ], filter => $filter );
 	my $prefetch = $storage->{PREFETCH}{$class}{$member} ||= {}; # weakref
-
-	while (my ($id) = $ids->fetchrow)
-	{
-		$prefetch->{$id} = []
-	}
 
 	my $cursor = Tangram::Cursor->new($storage, $ritem, $storage->{db});
 	
@@ -181,7 +174,6 @@ sub prefetch
 	$includes &= $filter if $filter;
 
 	# also retrieve collection-side id and index of elmt in sequence
-
 	$cursor->retrieve($coll->{id},
 	    $storage->expr(Tangram::Integer->instance,
 			"t$ritem->{object}{table_hash}{$def->{class}}.$def->{slot}") );
@@ -191,7 +183,7 @@ sub prefetch
 	while (my $item = $cursor->current)
 	{
 		my ($coll_id, $slot) = $cursor->residue;
-		$prefetch->{$coll_id}[$slot] = $item;
+		($prefetch->{$coll_id}||=[])->[$slot] = $item;
 		$cursor->next;
 	}
 

@@ -115,7 +115,7 @@ sub prepare_next_statement
 
 	$self->{sth} = $sth;
 
-	$sth->execute();
+	$sth->execute() or croak "Execute failed; $DBI::errstr";
 
 	return $sth;
   }
@@ -133,6 +133,12 @@ sub build_select
 	
 	substr($select, length('SELECT'), 0) = ' DISTINCT'
 	  if $self->{-distinct};
+
+	#unless ($self->{-my_rdbms_sucks} or !blessed $cols)
+	    #{
+		#$select .= ("\n\tGROUP BY ".$cols->root_table);
+	#}
+
 
 	if (my $order = $self->{-order})
 	{
@@ -152,7 +158,13 @@ sub build_select
 		$select .= ' DESC';
 	}
 
-	$select .= " LIMIT $self->{-limit}" if defined $self->{-limit};
+	if (defined $self->{-limit}) {
+	    if (ref $self->{-limit}) {
+		$select .= " LIMIT ".join(",",@{ $self->{-limit} });
+	    } else {
+		$select .= " LIMIT $self->{-limit}";
+	    }
+	}
 
 	return $select;
 }

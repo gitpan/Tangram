@@ -77,7 +77,7 @@ sub demand
 
 	my $set = Set::Object->new();
 
-	if (my $prefetch = $storage->{PREFETCH}{$class}{$member}{$storage->id($obj)})
+	if (my $prefetch = $storage->{PREFETCH}{$class}{$member}{$storage->export_object($obj)})
 	{
 		$set->insert(@$prefetch);
 	}
@@ -115,7 +115,7 @@ sub erase
 		}
 		else
 		{
-			my $item_classdef = $storage->{schema}{$def->{class}};
+			my $item_classdef = $storage->{schema}{classes}{$def->{class}};
 			my $table = $item_classdef->{table} || $def->{class};
 			my $item_col = $def->{coll};
 			$storage->sql_do("UPDATE $table SET $item_col = NULL WHERE $item_col = $coll_id");
@@ -138,17 +138,10 @@ sub remote_expr
 sub prefetch
 {
 	my ($self, $storage, $def, $coll, $class, $member, $filter) = @_;
-   
+
 	my $ritem = $storage->remote($def->{class});
 
 	my $prefetch = $storage->{PREFETCH}{$class}{$member} ||= {}; # weakref
-
-	my $ids = $storage->my_select_data( cols => [ $coll->{id} ], filter => $filter );
-
-	while (my ($id) = $ids->fetchrow)
-	{
-		$prefetch->{$id} = []
-	}
 
 	my $includes = $coll->{$member}->includes($ritem);
 	$includes &= $filter if $filter;
@@ -158,7 +151,7 @@ sub prefetch
 	while (my $item = $cursor->current)
 	{
 		my ($coll_id) = $cursor->residue;
-		push @{ $prefetch->{$coll_id} }, $item;
+		push @{ $prefetch->{$coll_id}||=[] }, $item;
 		$cursor->next;
 	}
 

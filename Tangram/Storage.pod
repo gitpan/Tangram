@@ -43,27 +43,28 @@ weak reference that was introduced in Perl 5.6. Whether that support
 is found or not has a major impact on how Storage influences object
 lifetime.
 
-If weakref support I<is> available, Storage uses weak references
-to keep track of objects that have already been loaded. This does
-I<not> prevent the objects from being reclaimed by Perl. IOW, the
-I<client> code decides how long an object remains in memory.
+If weakref support I<is> available, Storage uses weak references to
+keep track of objects that have already been loaded. This does I<not>
+prevent the objects from being reclaimed by Perl. IOW, the I<client>
+code decides how long an object remains in memory.
 
 If weakref support I<is not> available, Storage uses normal, 'strong'
-references. Storage will pin in memory all the objects that have been loaded
-I<and> inserted through it, until you call L<"disconnect"> or
+references. Storage will pin in memory all the objects that have been
+loaded I<and> inserted through it, until you call L<"disconnect"> or
 L<"unload">.
 
 In either case, Tangram will I<not> break circular structures for you.
 
 =head1 INTERNAL CONNECTION
 
-Except in the implementation of cursor(), Tangram uses a single DBI connection in its operations.
-That connection is called the 'internal' connection. Since, in general, database managers
-do not allow multiple result sets on the same connection, the internal connection can be used
-only to carray a single task at a time.
+Except in the implementation of cursor(), Tangram uses a single DBI
+connection in its operations.  That connection is called the
+'internal' connection. Since, in general, database managers do not
+allow multiple result sets on the same connection, the internal
+connection can be used only to carray a single task at a time.
 
-L<Tangram::Cursor>s returned by cursor() do not suffer from this limitation
-because they use a separate DBI connection.
+L<Tangram::Cursor>s returned by cursor() do not suffer from this
+limitation because they use a separate DBI connection.
 
 =head1 CLASS METHODS
 
@@ -84,7 +85,33 @@ fields:
 
 =over 4
 
-=item * dbh 
+=item * dbh
+
+Pass in an already connected DBI handle
+
+=item * no_tx
+
+Specify explicitly whether or not transactions are possible.  If they
+are not, then Tangram can guarantee consistency by serialising
+transaction updates - which guarantees poor performance and means that
+you can never use C<$storage-E<gt>rollback>.
+
+If you are using MySQL, you should consider using the InnoDB table
+type to avoid this problem.  Also note that you will explicitly have
+to set this option if you have InnoDB tables configured, as there is
+no real way of telling if transactions are available for any given
+query without either trying to do a rollback, or querying the table
+types for every table.  Which I don't think it's Tangram's duty to do!
+
+=item * no_subselects
+
+Functions that need to perform sub-selects will die immediately or
+attempt to emulate the functionality required, rather than relying on
+the RDBMS to return a failure.
+
+This is currently ignored, but that's not functionally relevant :-).
+It can be read as C<$storage-E<gt>{no_subselects}> however, as the
+correct value is automatically detected on connection.
 
 =back
 
@@ -100,15 +127,17 @@ Tangram may need to open extra connections (see below).
 
    $storage->insert( @objs );
 
-Inserts objects in storage. Returns the ID(s) assigned to the object(s).
-This method is valid in both L<scalar and list contexts>.
+Inserts objects in storage. Returns the ID(s) assigned to the
+object(s).  This method is valid in both L<scalar and list contexts>.
 
-The inserted objects must be of a class described in the schema associated to the storage.
+The inserted objects must be of a class described in the schema
+associated to the storage.
 
-Attempting to insert an object that is already persistent in the storage is an error.
+Attempting to insert an object that is already persistent in the
+storage is an error.
 
-Tangram will automatically insert any object that is refered by $obj if it is not
-already present in storage. In the following example:
+Tangram will automatically insert any object that is refered by $obj
+if it is not already present in storage. In the following example:
 
    my $homer = NaturalPerson->new(
       firstName => 'Homer', name => 'Simpson',
@@ -129,16 +158,19 @@ already present in storage. In the following example:
 
    $storage->update( @objs );
 
-Save objects to storage.
-This method is valid in both L<scalar and list contexts>.
+Save objects to storage.  This method is valid in both L<scalar and
+list contexts>.
 
-The objects must be of a class described in the schema associated to the storage.
+The objects must be of a class described in the schema associated to
+the storage.
 
-Attempting to update an object that is not already present in the storage is an error.
+Attempting to update an object that is not already present in the
+storage is an error.
 
-Tangram will automatically insert any object that is refered by an inserted object if it is not
-already present in storage. It will not automatically update the refered objects that are already
-stored. In the following example:
+Tangram will automatically insert any object that is refered by an
+inserted object if it is not already present in storage. It will not
+automatically update the refered objects that are already stored. In
+the following example:
 
    my $homer = NaturalPerson->new(
       firstName => 'Homer', name => 'Simpson' );
@@ -163,16 +195,17 @@ stored. In the following example:
 
    $storage->update( $homer );
 
-...Tangram automatically inserts the kids when their father is updated. OTOH, $marge will not be
-automatically inserted nor updated; her age will remain '34' in persistent storage.
+...Tangram automatically inserts the kids when their father is
+updated. OTOH, $marge will not be automatically inserted nor updated;
+her age will remain '34' in persistent storage.
 
 =head2 id
 
    $id = $storage->id( $obj );
    @id = $storage->id( @obj );
 
-Returns the IDs of the given objects. If an object is not persistent in storage yet, its
-corresponding ID is undef().
+Returns the IDs of the given objects. If an object is not persistent
+in storage yet, its corresponding ID is undef().
 
 This method is valid in both L<scalar and list contexts>.
 
@@ -241,6 +274,8 @@ directives:
 
 =item * distinct
 
+=item * limit
+
 =back
 
 C<filter> specifies a Filter that can be used to restrict the result
@@ -249,14 +284,30 @@ set.
 C<distinct> specifies that each object in the result set must be
 unique (Tangram generates a SELECT DISTINCT).
 
-C<order> THIS OPTION IS DEPRECATED!
+C<order> specifies attributes in terms of one or more of the remote
+objects - any that are being selected, or any that appear in the
+filter.
 
-C<desc> THIS OPTION IS DEPRECATED!
+C<desc> specifies that the order should be descending.  Order of which
+of the columns in the C<order> category, you might ask?  The last one
+for now :-}.  This syntax is therefore deprecated, to be replaced with
+a unary C<-> operator to order columns in some future Tangram release.
 
 C<distinct> is a boolean; a true value specifies that the same object
-should ocur only once in the result set.
+should ocur only once in the result set.  In general, this is a good
+idea; 
 
-Valid only in list context.
+C<limit> is a maximum number of rows to retrieve; in fact, with some
+databases you can give two numbers to this to get the rows between N
+and M of a select.  See your RDBMS manual for more.  If you want to
+specify more than one number, you may use the following syntax:
+
+   $storage->select( $object, filter => (...),
+                     limit => [ 5, 10 ] );
+
+The above example would return rows 6 through 15 on a MySQL database.
+
+The select method is valid only in list context.
 
 =head2 cursor
 
@@ -297,6 +348,61 @@ For options C<filter>, C<order>, C<desc> and C<distinct>, see C<select>.
 
 Option C<retrieve> is an array of Expr, to be retrieved in addition to
 the object itself.
+
+=head2 prefetch
+
+   $storage->prefetch("Class", "collection", $filter);
+
+This method fetches all the "collection" collections from "Class",
+where $filter.
+
+You need to be very careful with your filter - it is quite easy to end
+up with a filter that will include a single table twice with no join.
+
+You B<should not> include an expression in the filter that matches the
+type of object that you are prefetching, unless that is a *different*
+object to the one you want to load.
+
+You B<should> replace the text "Class" with a Tangram::Remote object
+from your C<$filter> if it appears in the expression.
+
+This code is OK:
+
+   my $r_parent = $storage->remote( "NaturalPerson" );
+   my $filter = ($r_parent->{age} > 40);
+
+   my @parent = $storage->select($r_parent, $filter);
+   $storage->prefetch($r_parent, "children" $filter);
+
+But this code has the problem:
+
+   my $r_parent = $storage->remote( "NaturalPerson" );
+   my $r_child  = $storage->remote( "NaturalPerson" );
+
+   my $filter = (
+                 ($r_parent->{age} > 40) &;
+                  $r_parent->{children}->includes($r_child)
+                );
+
+   my @parent = $storage->select($r_parent, $filter);
+   my @children = $storage->select($r_child, $filter);
+
+   $storage->prefetch($r_parent, "children", $filter);
+
+Because C<$filter> contains an extra `unnecessary' relationship with
+C<$r_child>, the filter that Tangram builds internally ends up looking
+like:
+
+    (
+     ($r_parent->{age} > 40) &
+     $r_parent->{children}->includes($r_child) &
+     $r_parent->{children}->includes($r_child2) &
+    );
+
+So, you end up including extra tables without joining them.  This
+situation does not make any sense, but unfortunately because of the
+definition of how RDBMS' work, it is required behaviour for it to give
+you a permutation of all of the unjoined tables.  <sigh>
 
 =head2 erase
 

@@ -5,7 +5,6 @@ use Tangram;
 use Tangram::RawDate;
 use Tangram::RawTime;
 use Tangram::RawDateTime;
-use Tangram::DMDateTime;
 
 use Tangram::FlatArray;
 use Tangram::FlatHash;
@@ -13,13 +12,19 @@ use Tangram::PerlDump;
 
 package Springfield;
 use Exporter;
-use vars qw(@ISA @EXPORT @EXPORT_OK);
+use vars qw(@ISA @EXPORT @EXPORT_OK %id @kids @opinions $no_date_manip);
+
+eval 'use Tangram::DMDateTime';
+
+$no_date_manip = $@;
+
 @ISA = qw( Exporter );
 
-@EXPORT = qw( &optional_tests $schema testcase &leaktest &leaked &test &begin_tests &tests_for_dialect $dialect $cs $user $passwd );
+@EXPORT = qw( &optional_tests $schema testcase &leaktest &leaked &test &begin_tests &tests_for_dialect $dialect $cs $user $passwd stdpop %id @kids @opinions);
 @EXPORT_OK = @EXPORT;
 
 use vars qw($cs $user $passwd $dialect $vendor $schema);
+use vars qw($no_tx $no_subselects $table_type);
 
 {
   local $/;
@@ -31,8 +36,19 @@ use vars qw($cs $user $passwd $dialect $vendor $schema);
 	  or open CONFIG, "../t/$config"
 		or die "Cannot open t/$config, reason: $!";
   
-  ($cs, $user, $passwd) = split "\n", <CONFIG>;
-  
+  my ($tx, $subsel, $ttype);
+  ($cs, $user, $passwd, $tx, $subsel, $ttype) = split "\n", <CONFIG>;
+
+  if ($tx =~ m/(\d)/) {
+      $no_tx = !$1;
+  }
+  if ($subsel =~ m/(\d)/) {
+      $no_subselects = !$1;
+  }
+  if ($ttype =~ m/table_type\s*=\s*(.*)/) {
+      $table_type = $1;
+  }
+
   $vendor = (split ':', $cs)[1];;
   $dialect = "Tangram::$vendor";  # deduce dialect from DBI driver
   eval "use $dialect";
@@ -43,8 +59,6 @@ sub list_if {
   shift() ? @_ : ()
 }
 
-use vars qw($no_tx);
-
 $schema = Tangram::Schema->new
     ( {
 
@@ -54,10 +68,12 @@ $schema = Tangram::Schema->new
    sql =>
    {
 	   cid_size => 3,
+    # Allow InnoDB style tables
+           ( $table_type ? ( table_type => $table_type ) : () )
    },
 
    class_table => 'Classes',
-								  
+
    classes =>
    [
       Person =>
@@ -77,7 +93,7 @@ $schema = Tangram::Schema->new
 		 name => undef,
 		},
 
-		int => [ qw( age ) ],
+		int => [ qw( age person_id ) ], # ks.perl@kurtstephens.com 2003/10/16
 
 		ref =>
 		{
@@ -89,7 +105,9 @@ $schema = Tangram::Schema->new
 				 rawdate => [ qw( birthDate ) ],
 				 rawtime => [ qw( birthTime ) ],
 				 rawdatetime => [ qw( birth ) ],
+			 ($no_date_manip ? () : (
 				 dmdatetime => [ qw( incarnation ) ]
+					   ))
 			   ),
 
 		array =>
@@ -105,6 +123,11 @@ $schema = Tangram::Schema->new
 		  class => 'Item',
 		  aggreg => 1,
 		  deep_update => 1
+		 },
+		 a_opinions =>
+		 {
+		  class => 'Opinion',
+		  table => 'a_opinions',
 		 }
 		},
 
@@ -126,6 +149,10 @@ $schema = Tangram::Schema->new
 		  slot => 'ia_slot',
 		  back => 'ia_parent',
 		  aggreg => 1,
+		 },
+		 ia_opinions =>
+		 {
+		  class => 'Opinion',
 		 }
 		},
 
@@ -136,6 +163,11 @@ $schema = Tangram::Schema->new
 		  class => 'NaturalPerson',
 		  table => 's_children',
 		  aggreg => 1,
+		 },
+		 s_opinions =>
+		 {
+		  class => 'Opinion',
+		  table => 's_opinions',
 		 }
 		},
 
@@ -148,6 +180,10 @@ $schema = Tangram::Schema->new
 		  slot => 'is_slot',
 		  back => 'is_parent',
 		  aggreg => 1,
+		 },
+		 is_opinions =>
+		 {
+		  class => 'Opinion',
 		 }
 		},
 
@@ -245,9 +281,9 @@ sub connect
   {
 	my $schema = shift || $Springfield::schema;
 	my $opts = {};
-	$opts->{no_tx} = 1 if $cs =~ /^dbi:mysql:/;
 	my $storage = $dialect->connect($schema, $cs, $user, $passwd, $opts) || die;
-	$no_tx = $storage->{no_tx};
+	$no_tx = $storage->{no_tx} unless defined $no_tx;
+	$no_subselects = $storage->{no_subselects};
 	return $storage;
   }
 
@@ -363,6 +399,81 @@ sub tests_for_dialect {
 #print Dumper $schema;
 #deploy;
 
+@kids = qw( Bart Lisa Maggie );
+
+sub stdpop
+{
+    my $storage = Springfield::connect_empty;
+    my $children = shift || "children";
+
+    $NaturalPerson::person_id = 0; # ks.perl@kurtstephens.com 2003/10/16
+
+    my @children = (map { NaturalPerson->new( firstName => $_ ) }
+		    @kids);
+    @id{ @kids } = $storage->insert( @children );
+    # *cough* hack *cough*
+    main::like("@id{@kids}", qr/^\d+ \d+ \d+$/, "Got ids back OK");
+
+    my %ops = ( "beer" => Opinion->new(statement => "good"),
+		     "donuts" => Opinion->new(statement => "mmm.."),
+		     "heart disease" =>
+		     Opinion->new(statement => "Heart What?"));
+
+    @opinions = map { $_->{statement} } values %ops;
+
+    my $homer;
+    {
+	$homer = NaturalPerson->new
+	(
+	 firstName => 'Homer',
+	 ($children =~ m/children/
+	  ? ($children =~ m/s_/
+	     ? ( $children => Set::Object->new(@children) )
+	     : ( $children => [ @children ] ) )
+	  : () ),
+	 ($children =~ m/opinion/
+	  ? ($children =~ m/h_/
+	     ? ($children => { %ops })
+	     : ($children =~ m/a_/
+		? ($children => [ values %ops ])
+		: ($children => Set::Object->new( values %ops ) )
+	       )
+	    )
+	  : ()
+	 )
+	);
+    }
+
+    $id{Homer} = $storage->insert($homer);
+    main::isnt($id{Homer}, 0, "Homer inserted OK");
+
+    my $marge = NaturalPerson->new( firstName => 'Marge' );
+
+    # cannot have >1 parent with a one to many relationship!
+    if ($children =~ m/children/) {
+	if ($children =~ m/^i/) {
+	} elsif ($children =~ m/s_/) {
+	    $marge->{$children} = Set::Object->new(@children);
+	} else {
+	    $marge->{$children} = [ @children ]
+	}
+    }
+
+    $id{Marge} = $storage->insert($marge);
+    main::isnt($id{Marge}, 0, "Marge inserted OK");
+
+    my $abraham = NaturalPerson->new( firstName => 'Abraham',
+				      ($children =~ m/children/
+				       ? ($children =~ m/s_/
+					  ? ( $children => Set::Object->new($homer) )
+					  : ( $children => [ $homer ] ) )
+				       : () ),
+				    );
+    $id{Abraham} = $storage->insert($abraham);
+
+    $storage->disconnect;
+}
+
 package SpringfieldObject;
 
 use vars qw( $pop );
@@ -400,8 +511,13 @@ package NaturalPerson;
 use vars qw(@ISA);
 @ISA = qw( Person );
 
+# BEGIN ks.perl@kurtstephens.com 2003/10/16
+our $person_id = 0;
+# END ks.perl@kurtstephens.com 2003/10/16
+
 sub defaults
 {
+   'person_id' => ++ $person_id, # ks.perl@kurtstephens.com 2003/10/16
    a_children => [], ia_children => [],
 	s_children => Set::Object->new, is_children => Set::Object->new,
    h_opinions => {}

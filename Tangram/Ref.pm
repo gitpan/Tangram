@@ -41,7 +41,7 @@ use Tangram::Scalar;
 package Tangram::Ref;
 
 use vars qw(@ISA);
- @ISA = qw( Tangram::Scalar SelfLoader );
+ @ISA = qw( Tangram::Scalar );
 
 $Tangram::Schema::TYPES{ref} = Tangram::Ref->new;
 
@@ -71,7 +71,7 @@ sub get_exporter
 
 	my $field = $self->{name};
 	my $table = $context->{class}{table};
-	my $deep_update = exists $self->{deep_update};
+	my $deep_update = $self->{deep_update};
 	
 	if ($context->{layout1}) {
 	  return sub {
@@ -209,15 +209,7 @@ sub erase
 	}
 }
 
-sub DESTROY { }
-
-use SelfLoader;
-
-1;
-
-__DATA__
-
-sub Tangram::Ref::coldefs
+sub coldefs
 {
     my ($self, $cols, $members, $schema) = @_;
 
@@ -227,3 +219,8 @@ sub Tangram::Ref::coldefs
 	  $cols->{ $def->{type_col} or die } = $schema->{sql}{cid} . $nullable;
     }
 }
+
+sub DESTROY { }
+
+1;
+

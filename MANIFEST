@@ -107,6 +107,8 @@ t/set.t
 t/iset.t
 # t/datetime.t
 t/hash.t
+t/new_types.t
+t/RefImage.pm
 
 
 t/mysql.t
@@ -122,3 +124,4 @@ debian/rules
 debian/copyright
 
 META.yml                                Module meta-data (added by MakeMaker)
+t/prefetch.t
