@@ -57,15 +57,7 @@ MSG
    {
       print "it worked!\n\n";
 
-      my @tables = $conn->tables();
-
-      if (@tables)
-      {
-         local $/ = "\n";
-         print "The database is not empty. May I attempt to drop all the tables? (Y/n)\n";
-         eval { map { $conn->do("DROP TABLE $_") } @tables } if <STDIN> =~ /^(Y|)$/i;
-      }
-
+      $conn->{PrintError} = 0;
       local $/ = '';
 
       open DEPLOY, 't/deploy.sql' or die "Cannot open 'deploy.sql', reason: $!";
@@ -73,7 +65,7 @@ MSG
       while (my $command = <DEPLOY>)
       {
          next if $command =~ /^\s*$/s;
-         #eval { $conn->do("DROP TABLE $1") } if $command =~ /CREATE TABLE (\w+)/;
+         eval { $conn->do("DROP TABLE $1") } if $command =~ /CREATE TABLE (\w+)/;
          eval { $conn->do($command) };
       }
 

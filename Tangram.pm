@@ -11,7 +11,7 @@ require Exporter;
 @EXPORT = qw(
 	
 );
-$VERSION = '0.10';
+$VERSION = '0.12';
 
 
 # Preloaded methods go here.

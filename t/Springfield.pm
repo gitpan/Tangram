@@ -215,7 +215,7 @@ sub tx_tests
 
 	if ($no_tx)
 	{
-		print STDERR "tests $test-", $test + $tests - 1, " skipped on this platform ";
+		print STDERR "tests $test-", $test + $tests - 1, " (transactions) skipped on this platform ";
 		test(1) while $tests--;
 	}
 	else
@@ -224,7 +224,7 @@ sub tx_tests
 	}
 }
 
-use Data::Dumper;
+#use Data::Dumper;
 #print Dumper $schema;
 #deploy;
 

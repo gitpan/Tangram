@@ -141,9 +141,9 @@ sub prefetch
 
    my $prefetch = $storage->{PREFETCH}{$class}{$member} ||= {}; # weakref
 
-   my $ids = $storage->my_select_data( cols => [ $storage->object($class)->{id} ] );
+   my $ids = $storage->my_select_data( cols => [ $coll->{id} ], filter => $filter );
 
-   while (my $id = $ids->fetchrow)
+   while (my ($id) = $ids->fetchrow)
    {
       $prefetch->{$id} = []
    }
@@ -293,8 +293,6 @@ sub demand
 {
    my ($self, $def, $storage, $obj, $member, $class) = @_;
 
-   print $Tangram::TRACE "loading $member\n" if $Tangram::TRACE;
-
    my $set = Set::Object->new();
 
    if (my $prefetch = $storage->{PREFETCH}{$class}{$member}{$storage->id($obj)})
@@ -303,6 +301,8 @@ sub demand
    }
    else
    {
+      print $Tangram::TRACE "loading $member\n" if $Tangram::TRACE;
+
       my $cursor = Tangram::CollCursor->new($storage, $def->{class}, $storage->{db});
 
       my $coll_id = $storage->id($obj);
@@ -349,11 +349,18 @@ sub prefetch
 
    my $prefetch = $storage->{PREFETCH}{$class}{$member} ||= {}; # weakref
 
+   my $ids = $storage->my_select_data( cols => [ $coll->{id} ], filter => $filter );
+
+   while (my ($id) = $ids->fetchrow)
+   {
+      $prefetch->{$id} = []
+   }
+
 	my $includes = $coll->{$member}->includes($ritem);
    $includes &= $filter if $filter;
 
    my $cursor = $storage->my_cursor( $ritem, filter => $includes, retrieve => [ $coll->{id} ] );
-
+   
    while (my $item = $cursor->current)
    {
       my ($coll_id) = $cursor->residue;

@@ -1,23 +1,5 @@
 use strict;
 
-package Tangram::DataCursor;
-
-sub new
-{
-   my $pkg = shift;
-   return bless [ @_ ] , $pkg;
-}
-
-sub execute
-{
-   my ($self, $storage) = @_;
-   my ($obj, $table, $col, $id) = @$self;
-	my $obj_id = $storage->id($obj);
-   my $sql = "UPDATE $table SET $col = $obj_id WHERE $table.id = $id";
-   $storage->sql_do($sql);
-}
-
-
 package Tangram::Cursor;
 
 use vars qw( $stored %done );
@@ -328,6 +310,12 @@ sub fetchrow
 	my @row = $self->{cursor}->fetchrow;
 	return () unless @row;
 	map { $_->{type}->read_data(\@row) } @{$self->{select}{cols}};
+}
+
+sub new
+{
+   my $pkg = shift;
+   return bless [ @_ ] , $pkg;
 }
 
 1;

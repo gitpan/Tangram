@@ -494,7 +494,7 @@ sub new
       $_->{expr};
    } @{$args{cols}};
 
-   my $filter = exists $args{where} ? $args{where} : Tangram::Filter->new;
+   my $filter = $args{filter} || $args{where} || Tangram::Filter->new;
    
    my $from = $filter->from;
    my $where;

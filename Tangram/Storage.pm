@@ -302,6 +302,8 @@ sub _insert
 
    my $id = $self->make_id($classId);
 
+   $self->{objects}{$id} = $obj;
+	$self->{set_id}->($obj, $id);
    $self->tx_on_rollback( sub { $self->{set_id}->($obj, undef) } );
 
    $schema->visit_up($class,
@@ -336,9 +338,6 @@ sub _insert
             $self->sql_do($insert);
          }
       } );
-
-   $self->{objects}{$id} = $obj;
-	$self->{set_id}->($obj, $id);
 
    return $id;
 }
@@ -734,7 +733,7 @@ sub sql_cursor
    print $Tangram::TRACE "$sql\n" if $Tangram::TRACE;
 
    my $sth = $connection->prepare($sql) or die;
-   $sth->execute() or die;
+   $sth->execute() or confess;
 
    new Tangram::Storage::Statement( statement => $sth, storage => $self,
       connection => $connection );

@@ -209,7 +209,7 @@ sub prefetch
    my $ids = $storage->my_select_data( cols => [ $coll->{id} ], filter => $filter );
    my $prefetch = $storage->{PREFETCH}{$class}{$member} ||= {}; # weakref
 
-   while (my $id = $ids->fetchrow)
+   while (my ($id) = $ids->fetchrow)
    {
       $prefetch->{$id} = []
    }
@@ -373,7 +373,13 @@ sub prefetch
 
    my $ritem = $storage->remote($def->{class});
 
+   my $ids = $storage->my_select_data( cols => [ $coll->{id} ], filter => $filter );
    my $prefetch = $storage->{PREFETCH}{$class}{$member} ||= {}; # weakref
+
+   while (my ($id) = $ids->fetchrow)
+   {
+      $prefetch->{$id} = []
+   }
 
    my $cursor = Tangram::Cursor->new($storage, $ritem, $storage->{db});
 	

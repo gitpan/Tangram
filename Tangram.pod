@@ -554,6 +554,11 @@ Commercial support for Tangram is available. Contact me at jll@skynet.be.
 
 =head1 OUTSTANDING ISSUES TO DO
 
+=head1 ACKNOWLEDGEMENTS
+
+I'd like to thank Paul Sharpe and the CPAN testers for helping me test Tangram on many
+popular platforms.
+
 =head1 LICENSE
 
 You may use, modify and redistribute this module under the same terms as Perl itself.

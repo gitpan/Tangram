@@ -20,10 +20,12 @@ A Schema defines a mapping between a system of classes and a relational database
 
 =head2 new( %h )
 
-Returns a new Schema object. %h contains a description of the system of classes to map.
+Returns a new Schema object.
 
-The Schema object becomes the owner of the hash, which can no longer be modified nor reused
-by client code.
+%h is a L<SCHEMA HASH> describing an entire system of persistent classes.
+
+The newly created Schema object becomes the owner of the hash,
+which can no longer be modified nor reused by client code.
 
 =head1 INSTANCE METHODS
 
@@ -35,6 +37,116 @@ The resulting SQL code prepares an empty database for use with this Schema.
 If FILEHANDLE is omitted, deploy() writes to STDOUT.
 
 Note that method deploy() must be explicitly loaded via a C<use Tangram::Deploy> directive.
+
+=head1 SCHEMA HASH
+
+The schema hash contains information on how to map en entire system of classes to the database.
+Currently it only has one documented entry C<classes>. The associated value is a reference
+to a hash that contains one entry per persistent class.
+
+Example:
+
+   $schema = Tangram::Schema->new(
+      classes =>
+      {
+         class1 => { ... },
+         class2 => { ... },
+         ...
+      } );
+
+=head1 MAPPING A CLASS
+
+An individual class is mapped by introducing an entry in the hash at C<$schema{classes}>.
+The key is the class name. The associated value is a hash containing the following fields:
+
+=over 4
+
+=item *
+
+table
+
+=item *
+
+abstract
+
+=item *
+
+bases
+
+=item *
+
+members
+
+=back
+
+All fields are optional.
+
+The C<table> field contains the name of the table to be used to store the state of an object
+of the class being defined. The table contains only the direct attributes of the class.
+
+If the C<table> field is absent, the table name defaults to the class name.
+
+The C<abstract> field, if present and set to a true value, specifies that the class is abstract and
+has no instances. Tangram will not issue SELECTs to retrieve objects of this exact class.
+
+The C<bases> field contains reference to an array of base class names. If it is absent, the class
+is assumed to have no bases.
+
+The C<members> fields contains a hash of member definitions. See L<MAPPING MEMBERS>.
+
+=head1 MAPPING MEMBERS
+
+The persistent members of a class are grouped by type inside the hash at
+$schema{classes}{class_name}{members}. Each key in the hash identifies a type. The associated
+value, a reference to a hash or an array, defines the name 
+
+Example:
+
+   $schema = Tangram::Schema->new(
+      classes =>
+      {
+         Person =>
+         {
+            strings  => { string members },
+         },
+      } );
+
+Tangram comes with several 
+
+=head1 MAPPING SCALAR TYPES
+
+The simple types are:
+
+=over 4
+
+=item *
+
+string
+
+=item *
+
+int
+
+=item *
+
+real
+
+=item *
+
+ref
+
+=back
+
+=head1 MAPPING COLLECTIONS
+
+Currently Tangram supports three types of collections: Perl arrays, Perl hashes and Set::Object.
+For each collection type, Tangram provides two mappings
+
+=head1 MAPPING ARRAYS OF OBJECTS
+
+=head1 MAPPING Set::Object
+
+=head1
 
 =head1 SCHEMA HASH
 
