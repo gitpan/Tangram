@@ -259,7 +259,7 @@ It consumes at least one column per collection, even for objects that are not pa
 
 =head4 array members
 
-Maps Perl arrays in a non-intrusive fashion.
+Maps Perl arrays of B<objects> in a non-intrusive fashion.
 
 The array hash contains one entry per persistent member of array type. The associated value
 can be either the class of the elements, or a hash containing the following entries:
@@ -302,7 +302,7 @@ Example:
 
 =head4 iarray members
 
-Maps Perl arrays in an intrusive fashion.
+Maps Perl arrays of B<objects> in an intrusive fashion.
 
 The iarray hash contains one entry per persistent member of array type. The associated value
 can be either the class of the elements, or a hash containing the following entries:

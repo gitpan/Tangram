@@ -39,7 +39,7 @@ sub stdpop
    $storage->disconnect;
 }
 
-Springfield::begin_tests(30);
+Springfield::begin_tests(33);
 
 stdpop();
 
@@ -123,6 +123,23 @@ Springfield::leaktest;
    my $storage = Springfield::connect;
 
 	my @prefetch = $storage->prefetch( 'NaturalPerson', $children );
+
+   my $homer = $storage->load( $id{Homer} );
+
+   Springfield::test( $homer->children eq 'Bart Lisa Maggie' );
+	marge_test( $storage );
+
+   $storage->disconnect;
+}
+
+Springfield::leaktest;
+
+{
+   my $storage = Springfield::connect;
+
+   my $person = $storage->remote('NaturalPerson');
+
+	my @prefetch = $storage->prefetch( $person, $children, $person->{firstName} eq 'Homer' );
 
    my $homer = $storage->load( $id{Homer} );
 

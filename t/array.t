@@ -8,7 +8,7 @@ my $children = $intrusive ? 'ia_children' : 'a_children';
 my %id;
 my @kids = qw( Bart Lisa Maggie );
 
-#$Opal::TRACE = \*STDOUT;   
+# $Tangram::TRACE = \*STDOUT;   
 
 sub NaturalPerson::children
 {
@@ -23,7 +23,7 @@ sub marge_test
 		|| $storage->load( $id{Marge} )->children eq 'Bart Lisa Maggie' );
 }
 
-Springfield::begin_tests(33);
+Springfield::begin_tests(36);
 
 sub stdpop
 {
@@ -158,6 +158,23 @@ Springfield::leaktest;
 
 {
    my $storage = Springfield::connect;
+
+	my @prefetch = $storage->prefetch( 'NaturalPerson', $children );
+
+   my $homer = $storage->load( $id{Homer} );
+
+   Springfield::test( $homer->children eq 'Bart Lisa Maggie' );
+	marge_test( $storage );
+
+   $storage->disconnect();
+}      
+
+Springfield::leaktest;
+
+{
+   my $storage = Springfield::connect;
+
+   my $person = $storage->remote('NaturalPerson');
 
 	my @prefetch = $storage->prefetch( 'NaturalPerson', $children );
 

@@ -1,6 +1,6 @@
 =head1 NAME
 
-Tangram
+Tangram - Orthogonal Object Persistence in Relational Databases
 
 =head1 DESCRIPTION / FEATURES
 
@@ -241,8 +241,8 @@ handle cycles: Homer and Marge refer to each other.
 Updating works pretty much the same as inserting:
 
    my $maggie = NaturalPerson->new( firstName => 'Maggie', name => 'Simpson' ); # a Baby!
-   $homer->{children}->insert( $maggie );
-   $marge->{children}->insert( $maggie );
+   push @{ $homer->{children} }, $maggie;
+   push @{ $marge->{children} }, $maggie;
 
    $storage->update( $homer, $marge );
 

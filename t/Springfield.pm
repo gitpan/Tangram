@@ -43,6 +43,15 @@ $schema = Tangram::Schema->new(
                }
             },
 
+            hash =>
+            {
+               h_opinions =>
+               {
+                  class => 'Opinion',
+                  table => 'h_opinions',
+               }
+            },
+
             iarray =>
             {
                ia_children =>
@@ -71,6 +80,15 @@ $schema = Tangram::Schema->new(
                   slot => 'is_slot',
                }
             },
+         },
+      },
+
+      Opinion =>
+      {
+         members =>
+         {
+            string =>
+               [ qw( statement ) ],
          },
       },
 
@@ -254,7 +272,8 @@ use vars qw( @ISA );
 sub defaults
 {
    a_children => [], ia_children => [],
-	s_children => Set::Object->new, is_children => Set::Object->new
+	s_children => Set::Object->new, is_children => Set::Object->new,
+   h_opinions => {}
 }
 
 sub as_string
@@ -281,5 +300,8 @@ package NuclearPlant;
 use vars qw( @ISA );
 
 @ISA = 'LegalPerson';
+
+package Opinion;
+use base qw( SpringfieldObject );
 
 1;

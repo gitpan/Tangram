@@ -27,6 +27,14 @@ CREATE TABLE NaturalPerson
   ia_ref numeric(15, 0) NULL
 )
 
+CREATE TABLE Opinion
+(
+  id numeric(15, 0) NOT NULL,
+  PRIMARY KEY( id ),
+  classId numeric(5,0) NOT NULL,
+  statement VARCHAR(128) NULL
+)
+
 CREATE TABLE Person
 (
   id numeric(15, 0) NOT NULL,
@@ -48,6 +56,13 @@ CREATE TABLE employees
   item numeric(15, 0)
 )
 
+CREATE TABLE h_opinions
+(
+  slot VARCHAR(128),
+  coll numeric(15, 0),
+  item numeric(15, 0)
+)
+
 CREATE TABLE s_children
 (
   coll numeric(15, 0),
@@ -64,7 +79,9 @@ CREATE TABLE OpalClass
 
 INSERT INTO OpalClass(classId, className, lastObjectId) VALUES (1, 'NuclearPlant', 0)
 
+INSERT INTO OpalClass(classId, className, lastObjectId) VALUES (3, 'Opinion', 0)
+
 INSERT INTO OpalClass(classId, className, lastObjectId) VALUES (2, 'LegalPerson', 0)
 
-INSERT INTO OpalClass(classId, className, lastObjectId) VALUES (3, 'NaturalPerson', 0)
+INSERT INTO OpalClass(classId, className, lastObjectId) VALUES (4, 'NaturalPerson', 0)
 

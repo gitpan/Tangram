@@ -49,13 +49,22 @@ MSG
    print "\nNow I will attempt to connect and prepare the database...";
 
    local $/;
-
    open CONFIG, 't/CONFIG' or die "Cannot open 't/CONFIG', reason: $!";
+
    my ($cs, $user, $passwd) = split "\n", <CONFIG>;
 
    if (my $conn = DBI->connect( $cs, $user, $passwd ))
    {
       print "it worked!\n\n";
+
+      my @tables = $conn->tables();
+
+      if (@tables)
+      {
+         local $/ = "\n";
+         print "The database is not empty. May I attempt to drop all the tables? (Y/n)\n";
+         eval { map { $conn->do("DROP TABLE $_") } @tables } if <STDIN> =~ /^(Y|)$/i;
+      }
 
       local $/ = '';
 
@@ -64,8 +73,8 @@ MSG
       while (my $command = <DEPLOY>)
       {
          next if $command =~ /^\s*$/s;
-         eval { $conn->do("DROP TABLE $1") } if $command =~ /CREATE TABLE (\w+)/;
-         $conn->do($command) or die;
+         #eval { $conn->do("DROP TABLE $1") } if $command =~ /CREATE TABLE (\w+)/;
+         eval { $conn->do($command) };
       }
 
       $conn->disconnect;
