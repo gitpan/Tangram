@@ -16,7 +16,7 @@ sub connect
   }
 
 sub blob {
-    return "BLOB";
+    return "BYTEA";
 }
 
 sub date {
@@ -27,19 +27,24 @@ sub bool {
     return "BOOL";
 }
 
-# FIXME - this should be implemented in the same way as the
-# IntegerExpr stuff, below.
-sub dbms_date {
+use MIME::Base64;
+
+sub to_blob {
     my $self = shift;
+    my $value = shift;
+    encode_base64($value);
+}
 
-    my $date = $self->SUPER::dbms_date(shift);
+sub from_blob {
+    my $self = shift;
+    my $value = shift;
+    decode_base64($value);
+}
 
-    # convert standard ISO-8601 to a format that MySQL natively
-    # understands, dumbass that it is.
-    $date =~ s{^(\d{4})(\d{2})(\d{2})(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)$}
-	{$1-$2-$3T$4:$5:$6};
-
-    return $date;
+sub sequence_sql {
+    my $self = shift;
+    my $sequence_name = shift;
+    return "SELECT nextval('$sequence_name')";
 }
 
 package Tangram::Pg::Storage;

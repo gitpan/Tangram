@@ -68,11 +68,38 @@ sub combine_ids
 		 : sprintf("%d%0$self->{cid_size}d", $id, $cid) );
   }
 
-sub dbms_date
+sub from_dbms
     {
 	my $self = shift;
 	my $driver = $self->{driver} or confess "no driver";
-	return $self->{driver}->dbms_date(shift);
+	return $self->{driver}->from_dbms(@_);
+    }
+
+sub to_dbms
+    {
+	my $self = shift;
+	my $driver = $self->{driver} or confess "no driver";
+	return $self->{driver}->to_dbms(@_);
+    }
+
+sub get_sequence {
+    my $self = shift;
+    my $sequence_name = shift;
+
+    # this is currently relying on the convenient co-incidence that
+    # the only database that has a non-trivial sequence sql fragment
+    # also doesn't use " FROM DUAL"
+    my $query = $self->sequence_sql($sequence_name).$self->from_dual;
+    my ($id) = map { @$_ } $self->{db}->selectall_arrayref($query);
+
+    return $id;
+}
+
+sub sequence_sql
+    {
+	my $self = shift;
+	my $driver = $self->{driver} or confess "no driver";
+	return $self->{driver}->sequence_sql(shift);
     }
 
 sub _open
@@ -90,8 +117,14 @@ sub _open
 
 	{
 	  local $dbh->{PrintError} = 0;
-	  my $control = $dbh->selectall_arrayref("SELECT * FROM $schema->{control}")
-	      or die $DBI::errstr;
+	  my $control;
+	  if ( $schema->{sql}{oid_sequence} ) {
+	      $control = "dummy";
+	  } else {
+	      $control = $dbh->selectall_arrayref
+		  ("SELECT * FROM $schema->{control}")
+		  or die $DBI::errstr;
+	  }
 
 	  $self->{id_col} = $schema->{sql}{id_col};
 
@@ -177,12 +210,15 @@ sub open_connection
     # private - open a new connection to DB for read
 
     my $self = shift;
-    my $db = DBI->connect($self->{-cs}, $self->{-user}, $self->{-pw})
-	or die;
-
+    my $attr = {};
     if (defined $self->{no_tx}) {
-	$db->{AutoCommit} = ($self->{no_tx} ? 1 : 0);
+	$attr->{AutoCommit} = ($self->{no_tx} ? 1 : 0);
+	print $Tangram::TRACE __PACKAGE__.": setting AutoCommit to $attr->{AutoCommit}\n"
+	    if $Tangram::TRACE;
     }
+    my $db = DBI->connect($self->{-cs}, $self->{-user}, $self->{-pw},
+			  $attr)
+	or die;
 
     return $db;
 }
@@ -269,6 +305,8 @@ sub make_id
     if ( $classdef->{make_id} ) {
 	$id = $classdef->{make_id}->($class_id, $self);
 	print $Tangram::TRACE "Tangram: custom per-class ($cname) make ID function returned ".(pretty($id))."\n" if $Tangram::TRACE;
+    } elsif ( $classdef->{oid_sequence} ) {
+	$id = $self->get_sequence($classdef->{oid_sequence});
     }
 
     # maybe the entire schema has its own ID generator
@@ -276,6 +314,8 @@ sub make_id
 	$id = $self->{schema}{sql}{make_id}->($class_id, $self);
 	print $Tangram::TRACE "Tangram: custom schema make ID function returned "
 	    .(pretty($id))."\n" if $Tangram::TRACE;
+    } elsif ( my $seq = $self->{schema}{sql}{oid_sequence} ) {
+	$id = $self->get_sequence($seq);
     }
     if (defined($id)) {
 	return $self->combine_ids($id, $class_id);
@@ -627,9 +667,14 @@ sub _insert
 	  }
 
 	  my $sth = $sths->[$i];
-	  $sth->execute(map {( ref $_ ? "$_" : $_ )}
-			@state[ @{ $fields[$i] } ])
+
+
+	  my @args = (map {( ref $_ ? "$_" : $_ )} @state[ @{ $fields[$i] } ]);
+	  #print STDERR "args are: ".Data::Dumper::Dumper(\@args);
+	  #kill 2, $$;
+	  $sth->execute(@args)
 	      or die $dbh->errstr;
+
 	  $sth->finish();
 	}
 
@@ -773,8 +818,8 @@ sub erase
 		       my $eid = $self->{export_id}->($id);
 
 			   for my $sth (@$sths) {
-				 $sth->execute($eid);
-				 $sth->finish();
+			       $sth->execute($eid) or die "execute failed; ".$DBI::errstr;
+			       $sth->finish();
 			   }
 
 		       $self->do_defered;
@@ -809,12 +854,18 @@ sub import_object
     my $class = shift;
     my @oids = @_;
 
-    # convert the `exported' object IDs to real OIDs
-    my $cid = $self->class_id($class);
+    my $r_thing = $self->remote($class);
 
-    @oids = map { $self->combine_ids($_, $cid) } @oids;
+    my %objs = map { $self->export_object($_) => $_ }
+	$self->select ($r_thing, $r_thing->{id}->in(@oids));
 
-    return $self->load(@oids);
+    my @objs = map { delete $objs{$_} } @oids;
+
+    if ( wantarray ) {
+	return @objs
+    } else {
+	return $objs[0];
+    }
 }
 
 sub dummy_object
@@ -954,10 +1005,10 @@ sub _fetch_object_state
     my $row;
     $sth->execute($self->{export_id}->($id)) &&
 	($row = $sth->fetchrow_arrayref())
-	    or carp "could not find $class->{name} object "
+	    or croak "could not find $class->{name} object "
 		.$self->{export_id}->($id)." (oid $id) in storage";
 
-    my $state = [ @$row ];
+    my $state = [ @$row ] if $row;
     $sth->finish();
 
     return $state;
@@ -1135,12 +1186,19 @@ sub disconnect
 
     $self->{db}->{RaiseError} = 0;
 
-    unless ($self->{no_tx})
+    unless ($self->{no_tx} or $self->{db}->{AutoCommit})
     {
 	$self->{db}->rollback;
     }
 
-    $self->{db}->disconnect if $self->{db_owned};
+    if ($self->{db_owned}) {
+	print $Tangram::TRACE __PACKAGE__.": disconnecting\n"
+	    if $Tangram::TRACE;
+	$self->{db}->disconnect;
+    } else {
+	print $Tangram::TRACE __PACKAGE__.": disconnecting (no handle)\n"
+	    if $Tangram::TRACE;
+    }
 
     %$self = ();
 }
@@ -1205,6 +1263,12 @@ sub connect
 
 	$opts ||= {};
 
+    if (exists $opts->{no_tx}) {
+	$self->{no_tx} = $opts->{no_tx};
+    } elsif ( $self->can("has_tx") ) {
+	$self->{no_tx} = !($self->has_tx);
+    }
+
     @$self{ -cs, -user, -pw } = ($cs, $user, $pw);
 
     $self->{driver} = $opts->{driver} || Tangram::Relational->new;
@@ -1215,11 +1279,7 @@ sub connect
 	$self->{db_owned} = 1;
     }
 
-    if (exists $opts->{no_tx}) {
-	$self->{no_tx} = $opts->{no_tx};
-    } elsif ( $self->can("has_tx") ) {
-	$db->{AutoCommit} = ($self->{no_tx} = ! $self->has_tx);
-    } else {
+    unless ( exists $self->{no_tx} ) {
 	eval { $db->{AutoCommit} = 0 };
 	$self->{no_tx} = $db->{AutoCommit};
     }
@@ -1366,19 +1426,21 @@ sub from_dual { "" }
 sub ping {
     my $self = shift;
 
-    my $answer =
-	$self->sql_selectall_arrayref("select 1+1".$self->from_dual);
+    $self->{db}->ping or die "ping failed; DB down?  $DBI::errstr"
 
-    if ( $answer ) {
-	if ( $answer->[0][0] == 2 ) {
-	    return 1;
-	} else {
-	    die "Database can't add";
-	}
-    } else {
-	# will probably never get here...
-	return undef;
-    }
+    #my $answer =
+	##$self->sql_selectall_arrayref("select 1+1".$self->from_dual);
+#
+    #if ( $answer ) {
+	#if ( $answer->[0][0] == 2 ) {
+	    #return 1;
+	#} else {
+	    #die "Database can't add";
+	#}
+    #} else {
+	## will probably never get here...
+	#return undef;
+    #}
 }
 
 sub recycle {
@@ -1436,7 +1498,19 @@ sub oid_isa
 sub DESTROY
 {
     my $self = shift;
-    $self->{db}->disconnect if $self->{db} && $self->{db_owned};
+    if ($self->{db}) {
+	if ( $self->{db_owned} ) {
+	    print $Tangram::TRACE __PACKAGE__.": destroyed; disconnecting\n"
+		if $Tangram::TRACE;
+	    $self->{db}->disconnect;
+	} else {
+	    print $Tangram::TRACE __PACKAGE__.": destroyed; leaving handle open\n"
+		if $Tangram::TRACE;
+	}
+    } else {
+	print $Tangram::TRACE __PACKAGE__.": destroyed; no active handle\n"
+	    if $Tangram::TRACE;
+    }
 }
 
 package Tangram::Storage::Statement;

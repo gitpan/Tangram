@@ -31,6 +31,30 @@ sub dbms_date {
     return $date;
 }
 
+sub sequence_sql {
+    my $self = shift;
+
+    my $sequence_name = shift;
+    # from the MySQL manual
+    # http://dev.mysql.com/doc/mysql/en/Information_functions.html
+    return("UPDATE seq_$sequence_name SET id=LAST_INSERT_ID(id+1);\n"
+	   ."SELECT LAST_INSERT_ID();");
+}
+
+sub mk_sequence_sql {
+    my $self = shift;
+    my $sequence_name = shift;
+
+    return("CREATE TABLE seq_$sequence_name (id INT NOT NULL);\n"
+	   ."INSERT INTO seq_$sequence_name VALUES (0);");
+}
+
+sub drop_sequence_sql {
+    my $self = shift if ref $_[0] and UNIVERSAL::isa($_[0], __PACKAGE__);
+    my $sequence_name = shift;
+    return "DROP TABLE seq_$sequence_name";
+}
+
 package Tangram::mysql::Storage;
 
 use Tangram::Storage;
@@ -55,8 +79,11 @@ sub make_id
 sub tx_start
   {
     my $storage = shift;
-    $storage->sql_do(q/SELECT GET_LOCK("tx", 10)/)
-      unless @{ $storage->{tx} };
+    unless (@{ $storage->{tx} }) {
+	if ( $storage->{no_tx} ) {
+	    $storage->sql_do (q{SELECT GET_LOCK("tx", 10)} ); #})  #cperl-mode--
+	}
+    }
     $storage->SUPER::tx_start(@_);
   }
 
@@ -64,14 +91,19 @@ sub tx_commit
   {
     my $storage = shift;
     $storage->SUPER::tx_commit(@_);
-    $storage->sql_do(q/SELECT RELEASE_LOCK("tx")/)
-      unless @{ $storage->{tx} };
+    unless (@{ $storage->{tx} }) {
+	if ( $storage->{no_tx} ) {
+	    $storage->sql_do(q/SELECT RELEASE_LOCK("tx")/)
+	}
+    }
   }
 
 sub tx_rollback
   {
     my $storage = shift;
-    $storage->sql_do(q/SELECT RELEASE_LOCK("tx")/);
+    if ( $storage->{no_tx} ) {
+	$storage->sql_do(q/SELECT RELEASE_LOCK("tx")/);
+    }
     $storage->SUPER::tx_rollback(@_);
   }
 

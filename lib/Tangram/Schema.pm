@@ -210,6 +210,8 @@ use vars qw( %TYPES );
 #   ref      => new Tangram::Ref,
 );
 
+use Scalar::Util qw(reftype);
+
 sub new
 {
     my $pkg = shift;
@@ -220,7 +222,11 @@ sub new
 
     $self->{make_object} ||= sub { shift()->new() };
 
-    $self->{normalize} ||= sub { shift() };
+    $self->{normalize} ||= sub
+	{ my $class = shift;
+	  $class =~ s{::}{_}g;
+	  $class;
+      };
     $self->{class_table} ||= 'OpalClass';
 
     $self->{control} ||= 'Tangram';
@@ -240,7 +246,7 @@ sub new
 
     %$types = ( %TYPES, %$types );
 
-    my @class_list = ref($self->{'classes'}) eq 'HASH' ? %{ $self->{'classes'} } : @{ $self->{'classes'} };
+    my @class_list = reftype($self->{'classes'}) eq 'HASH' ? %{ $self->{'classes'} } : @{ $self->{'classes'} };
     my $class_hash = $self->{'classes'} = {};
 
     bless $class_hash, 'Tangram::ClassHash';
