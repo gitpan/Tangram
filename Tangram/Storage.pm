@@ -5,7 +5,7 @@ use strict;
 package Tangram::Storage;
 use DBI;
 use Carp;
-use Tangram::Core;
+use Tangram::Core qw(pretty);
 
 use vars qw( %storage_class );
 
@@ -26,6 +26,7 @@ BEGIN {
 	*Tangram::refaddr = \&Scalar::Util::refaddr;
 	$Tangram::no_weakrefs = 0;
     }
+    *pretty = *Tangram::Core::pretty;
 }
 
 sub new
@@ -56,7 +57,12 @@ sub split_id
 sub combine_ids
   {
 	my $self = shift;
-	return $self->{layout1} ? shift : sprintf("%d%0$self->{cid_size}d", @_);
+	my $id = shift or confess "no id";
+	my $cid = shift or confess "no cid";
+	defined($self->{cid_size}) or die "no CID size in schema";
+	return ( $self->{layout1}
+		 ? shift
+		 : sprintf("%d%0$self->{cid_size}d", $id, $cid) );
   }
 
 sub _open
@@ -119,7 +125,8 @@ sub _open
 	  my $address = Tangram::refaddr(shift());
 	  my $id = $self->{ids}{$address};
 	  return undef unless $id;
-	  return $id if exists $self->{objects}{$id};
+	  # refaddr's can be re-used, but weakrefs are magic :-)
+	  return $id if defined($self->{objects}{$id});
 	  delete $self->{ids}{$address};
 	  delete $self->{objects}{$id};
 	  return undef;
@@ -238,6 +245,8 @@ sub make_id
 		$self->{set_mark} = 1;	# cleared by tx_start
 	  } else {
 		$id = $self->make_1st_id_in_tx();
+		$self->{mark} = $id+1;
+ 		$self->{set_mark} = 1;
 	  }
 	  
 	  return sprintf "%d%0$self->{cid_size}d", $id, $class_id;
@@ -497,8 +506,18 @@ sub _insert
 	my $sths = $self->{INSERT_STHS}{$class_name} ||=
 	  [ map { $self->prepare($_) } $engine->get_insert_statements($class) ];
 
-	my $context = { storage => $self, dbh => $dbh, id => $id, SAVING => $saving };
-	my @state = ( $self->{export_id}->($id), $classId, $class->get_exporter({layout1 => $self->{layout1} })->($obj, $context) );
+	my $context =
+	    { storage => $self,
+	      dbh => $dbh,
+	      id => $id,
+	      SAVING => $saving };
+
+	my @state = (
+		     $self->{export_id}->($id),
+		     $classId,
+		     $class->get_exporter({layout1 => $self->{layout1} })
+		         ->($obj, $context)
+		    );
 
 	my @fields = $engine->get_insert_fields($class);
 
@@ -557,7 +576,11 @@ sub _update
     my $class = $self->{schema}->classdef(ref $obj);
 	my $engine = $self->{engine};
 	my $dbh = $self->{db};
-	my $context = { storage => $self, dbh => $dbh, id => $id, SAVING => $saving };
+	my $context =
+	    { storage => $self,
+	      dbh => $dbh,
+	      id => $id,
+	      SAVING => $saving };
 
 	my @state = ( $self->{export_id}->($id), substr($id, -$self->{cid_size}), $class->get_exporter({ layout1 => $self->{layout1} })->($obj, $context) );
 	my @fields = $engine->get_update_fields($class);
@@ -912,7 +935,13 @@ sub sum
 {
     my ($self, $expr, $filter) = @_;
 
-    my $objects = Set::Object->new($expr->objects);
+    my $expr_is_array = ref($expr) eq 'ARRAY';
+
+    my $objects = Set::Object->new(
+				   $expr_is_array ? 
+				   map($_->objects, @$expr) :
+				   $expr->objects,
+				  );
 
     my @filter_expr;
 
@@ -922,13 +951,24 @@ sub sum
 	@filter_expr = ( "($filter->{expr})" );
     }
 
-    my $sql = "SELECT SUM($expr->{expr}) FROM " . join(', ', map { $_->from } $objects->members);
+    my $sql = "SELECT " .
+      join(', ',
+	   map("SUM($_->{expr})",
+	       $expr_is_array ? @$expr : ($expr),
+	      ),
+	  ) . " FROM " . join(', ', map { $_->from } $objects->members);
 
     $sql .= "\nWHERE " . join(' AND ', @filter_expr, map { $_->where } $objects->members);
 
     print $Tangram::TRACE "$sql\n" if $Tangram::TRACE;
 
-    return ($self->{db}->selectrow_array($sql))[0];
+    my @result = $self->{db}->selectrow_array($sql);
+
+    if ( $expr_is_array ) {
+      return wantarray ? @result : \@result;
+    } else {
+      return $result[0];
+    }
 }
 
 sub id
@@ -956,7 +996,7 @@ sub disconnect
 	}
     }
    
-    $self->{db}->disconnect;
+    $self->{db}->disconnect if $self->{db_owned};
 
     %$self = ();
 }
@@ -1023,7 +1063,11 @@ sub connect
 
     @$self{ -cs, -user, -pw } = ($cs, $user, $pw);
 
-    my $db = $opts->{dbh} || $self->open_connection;
+    my $db = $opts->{dbh};
+    unless ( $db ) {
+      $db = $self->open_connection;
+      $self->{db_owned} = 1;
+    }
  
 	if (exists $opts->{no_tx}) {
 	  $self->{no_tx} = $opts->{no_tx};
@@ -1037,7 +1081,7 @@ sub connect
     } else {
 	local($SIG{__WARN__})=sub{};
 	eval {
-	    my $sth = $db->prepare("select * from (select 1+1)");
+	    my $sth = $db->prepare("select * from (select 1+1) as test");
 	    $sth->execute() or die;
 	};
 	if ($@ or $DBI::errstr) {
@@ -1060,9 +1104,9 @@ sub connection { shift->{db} }
 
 sub sql_do
 {
-    my ($self, $sql) = @_;
-    print $Tangram::TRACE "$sql\n" if $Tangram::TRACE;
-	my $rows_affected = $self->{db}->do($sql);
+    my ($self, $sql, @placeholders) = @_;
+    print $Tangram::TRACE "$sql with (@placeholders)\n" if $Tangram::TRACE;
+    my $rows_affected = $self->{db}->do($sql, {}, @placeholders);
     return defined($rows_affected) ? $rows_affected
 	  : croak $DBI::errstr;
 }
@@ -1128,8 +1172,9 @@ sub oid_isa
 
 	my $class = shift;
 	my $classes = $self->{schema}->{classes};
-	croak "Class ".pretty($oid)." is not defined in the schema"
-	    unless defined($class) and exists $classes->{$class};
+	carp "Class ".pretty($class)." is not defined in the schema",
+	    return undef
+		unless defined($class) and exists $classes->{$class};
 
 	my @bases = $self->{id2class}->{ ($self->split_id($oid))[1] + 0 };
 
@@ -1149,7 +1194,7 @@ sub oid_isa
 sub DESTROY
 {
     my $self = shift;
-    $self->{db}->disconnect if $self->{db};
+    $self->{db}->disconnect if $self->{db} && $self->{db_owned};
 }
 
 package Tangram::Storage::Statement;

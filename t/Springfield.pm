@@ -9,6 +9,8 @@ use Tangram::RawDateTime;
 use Tangram::FlatArray;
 use Tangram::FlatHash;
 use Tangram::PerlDump;
+use Tangram::Storable;
+use Tangram::IDBIF;
 
 package Springfield;
 use Exporter;
@@ -67,9 +69,12 @@ $schema = Tangram::Schema->new
 
    sql =>
    {
-	   cid_size => 3,
+    cid_size => 3,
+
     # Allow InnoDB style tables
-           ( $table_type ? ( table_type => $table_type ) : () )
+    ( $table_type ? ( table_type => $table_type ) : () ),
+
+    #dumper => "Storable",
    },
 
    class_table => 'Classes',
@@ -128,6 +133,15 @@ $schema = Tangram::Schema->new
 		 {
 		  class => 'Opinion',
 		  table => 'a_opinions',
+		 }
+		},
+
+		ihash =>
+		{
+		 ih_opinions =>
+		 {
+		  class => 'Opinion',
+		  back => "ih_parent",
 		 }
 		},
 
@@ -192,6 +206,8 @@ $schema = Tangram::Schema->new
 		flat_hash => [ qw( opinions ) ],
 
 		perl_dump => [ qw( brains ) ],
+
+		storable => [ qw( thought ) ],
 	   },
       },
 
@@ -267,6 +283,39 @@ $schema = Tangram::Schema->new
 	 }
 	},
 
+    Faerie => {
+	       fields =>
+	       { idbif => { -poof => # there goes another one!
+			    undef
+			 #   { dumper => "Storable" }
+			  },
+		 string => [ qw(name) ],
+	       },
+	      },
+
+    FaerieHairy => {
+		    fields =>
+		    {
+		     string => [ qw(name) ],
+		     idbif => { friends => undef,
+				enemies => undef,
+				#-options => { dumper => "Storable" },
+			      } },
+		   },
+
+    Sprite => {
+	       table => qw(Faerie),
+	       bases => [ qw(Faerie) ],
+	       fields => { string => [ qw(foo) ], },
+	      },
+
+    Nymph => {
+	      table => qw(FaerieHairy),
+	      bases => [ qw(FaerieHairy) ],
+	      fields => { idbif => [ qw(buddies) ],
+			},
+	     },
+
    ],
 	($ENV{"NORMALIZE_TEST"} ?
        (normalize => sub {
@@ -280,7 +329,7 @@ $schema = Tangram::Schema->new
 sub connect
   {
 	my $schema = shift || $Springfield::schema;
-	my $opts = {};
+	my $opts = shift || {};
 	my $storage = $dialect->connect($schema, $cs, $user, $passwd, $opts) || die;
 	$no_tx = $storage->{no_tx} unless defined $no_tx;
 	$no_subselects = $storage->{no_subselects};
@@ -410,6 +459,9 @@ sub stdpop
 
     my @children = (map { NaturalPerson->new( firstName => $_ ) }
 		    @kids);
+    $children[0]->{age} = 10;
+    $children[1]->{age} = 8;
+    $children[2]->{age} = 1;
     @id{ @kids } = $storage->insert( @children );
     # *cough* hack *cough*
     main::like("@id{@kids}", qr/^\d+ \d+ \d+$/, "Got ids back OK");
@@ -425,6 +477,7 @@ sub stdpop
     {
 	$homer = NaturalPerson->new
 	(
+	 age => 38,
 	 firstName => 'Homer',
 	 ($children =~ m/children/
 	  ? ($children =~ m/s_/
@@ -447,7 +500,9 @@ sub stdpop
     $id{Homer} = $storage->insert($homer);
     main::isnt($id{Homer}, 0, "Homer inserted OK");
 
-    my $marge = NaturalPerson->new( firstName => 'Marge' );
+    my $marge = NaturalPerson->new( firstName => 'Marge',
+				    age => 37,
+				  );
 
     # cannot have >1 parent with a one to many relationship!
     if ($children =~ m/children/) {
@@ -463,6 +518,7 @@ sub stdpop
     main::isnt($id{Marge}, 0, "Marge inserted OK");
 
     my $abraham = NaturalPerson->new( firstName => 'Abraham',
+				      age => 62,
 				      ($children =~ m/children/
 				       ? ($children =~ m/s_/
 					  ? ( $children => Set::Object->new($homer) )
@@ -482,7 +538,9 @@ sub new
 {
    my $pkg = shift;
    ++$pop;
-   return bless { $pkg->defaults, @_ }, $pkg;
+   my $foo = bless { $pkg->defaults, @_ }, $pkg;
+   #print STDERR "I am alive!  $foo\n";
+   return $foo;
 }
 
 sub defaults
@@ -493,6 +551,7 @@ sub defaults
 sub DESTROY
 {
 #   die if exists shift->{id};
+    #print STDERR "I am dying!  $_[0]\n";
    --$pop;
 }
 
@@ -554,6 +613,14 @@ use vars qw(@ISA);
 @ISA = qw( SpringfieldObject );
 
 package Item;
+use vars qw(@ISA);
+@ISA = qw( SpringfieldObject );
+
+package Faerie;
+use vars qw(@ISA);
+@ISA = qw( SpringfieldObject );
+
+package FaerieHairy;
 use vars qw(@ISA);
 @ISA = qw( SpringfieldObject );
 

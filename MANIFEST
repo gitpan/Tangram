@@ -31,6 +31,7 @@ Tangram/mysql.pm
 Tangram/mysql.pod
 
 Tangram/Ref.pm
+Tangram/IntrRef.pm
 
 Tangram/Coll.pm
 
@@ -43,6 +44,7 @@ Tangram/FlatHash.pm
 Tangram/AbstractSet.pm
 Tangram/Set.pm
 Tangram/IntrSet.pm
+Tangram/IDBIF.pm
 
 Tangram/AbstractHash.pm
 Tangram/Hash.pm
@@ -125,3 +127,12 @@ debian/copyright
 
 META.yml                                Module meta-data (added by MakeMaker)
 t/prefetch.t
+Tangram/Dump.pm
+Tangram/Storable.pm
+Tangram/Storable.pod
+Tangram/YAML.pm
+t/dump.t
+t/ihash.t
+t/storable.t
+t/idbif.t
+t/aggregate.t

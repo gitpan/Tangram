@@ -47,6 +47,13 @@ sub for_conforming
    $traverse->($class);
  }
 
+#---------------------------------------------------------------------
+#  Tangram::Node->for_composing($closure, @_)
+#
+# Runs the given closure once for this class, and all its superclasses
+# listed in the schema as $class->{BASES}
+#
+#---------------------------------------------------------------------
 sub for_composing
 {
    my ($class, $fun, @args) = @_;
@@ -71,78 +78,83 @@ sub for_composing
 
 sub get_exporter {
   my ($self, $context) = @_;
-  
+
   return $self->{EXPORTER} ||= do {
-	
+
 	my (@export_sources, @export_closures);
 
-	
-	$self->for_composing( sub {
-							my ($part) = @_;
+	$self->for_composing
+	    ( sub {
+		  my ($part) = @_;
 
-							$context->{class} = $part;
-							
-							for my $field ($part->direct_fields()) {
-							  if (my $exporter = $field->get_exporter($context)) {
-								if (ref $exporter) {
-								  push @export_closures, $exporter;
-								  push @export_sources, 'shift(@closures)->($obj, $context)';
-								} else {
-								  push @export_sources, $exporter;
-								}
-							  }
-							}
-						  } );
-	
+		  $context->{class} = $part;
+
+		  for my $field ($part->direct_fields()) {
+		      if (my $exporter = $field->get_exporter($context)) {
+			  if (ref $exporter) {
+			      push @export_closures, $exporter;
+			      push @export_sources, 'shift(@closures)->($obj, $context)';
+			  } else {
+			      push @export_sources, $exporter;
+			  }
+		      }
+		  }
+	      } );
+
 	my $export_source = join ",\n", @export_sources;
-	my $copy_closures = @export_closures ? ' my @closures = @export_closures;' : '';
-	
+	my $copy_closures =
+	    ( @export_closures ? ' my @closures = @export_closures;' : '' );
+
 	# $Tangram::TRACE = \*STDOUT;
-	
-	$export_source = "sub { my (\$obj, \$context) = \@_;$copy_closures\n$export_source }";
-	
+
+	$export_source = ("sub { my (\$obj, \$context) = \@_;"
+			  ."$copy_closures\n$export_source }");
+
 	print $Tangram::TRACE "Compiling exporter for $self->{name}...\n".($Tangram::DEBUG_LEVEL > 1 ? "$export_source\n" : "")
 	    if $Tangram::TRACE;
 
 	eval $export_source or die;
-	}
-  }
+    }
+}
 
 sub get_importer {
   my ($self, $context) = @_;
-  
+
   return $self->{IMPORTER} ||= do {
 	my (@import_sources, @import_closures);
-	
-	$self->for_composing( sub {
-							my ($part) = @_;
-							
-							$context->{class} = $part;
-							
-							for my $field ($part->get_direct_fields()) {
-							  
-							  my $importer = $field->get_importer($context)
-								or next;
-							  
-							  if (ref $importer) {
-								push @import_closures, $importer;
-								push @import_sources, 'shift(@closures)->($obj, $row, $context)';
-							  } else {
-								push @import_sources, $importer;
-							  }
-							}
-						  } );
-	
+
+	$self->for_composing
+	    ( sub {
+		  my ($part) = @_;
+
+		  $context->{class} = $part;
+
+		  for my $field ($part->get_direct_fields()) {
+
+		      my $importer = $field->get_importer($context)
+			  or next;
+
+		      if (ref $importer) {
+			  push @import_closures, $importer;
+			  push @import_sources, 'shift(@closures)->($obj, $row, $context)';
+		      } else {
+			  push @import_sources, $importer;
+		      }
+		  }
+	      } );
+
 	my $import_source = join ";\n", @import_sources;
-	my $copy_closures = @import_closures ? ' my @closures = @import_closures;' : '';
-	
+	my $copy_closures =
+	    ( @import_closures ? ' my @closures = @import_closures;' : '' );
+
 	# $Tangram::TRACE = \*STDOUT;
-	
-	$import_source = "sub { my (\$obj, \$row, \$context) = \@_;$copy_closures\n$import_source }";
-	
+
+	$import_source = ( "sub { my (\$obj, \$row, \$context) = \@_;"
+			   ."$copy_closures\n$import_source }" );
+
 	print $Tangram::TRACE "Compiling importer for $self->{name}...\n".($Tangram::DEBUG_LEVEL > 1 ? "$import_source\n" : "")."\n"
 	  if $Tangram::TRACE;
-	
+
 	# use Data::Dumper; print Dumper \@cols;
 	eval $import_source or die;
   };
@@ -219,6 +231,8 @@ sub new
     $self->{sql}{oid} ||= 'INTEGER';
     $self->{sql}{cid_size} ||= 4;
 
+    $self->{sql}{dumper} ||= "Storable";
+
     my $types = $self->{types} ||= {};
 
     %$types = ( %TYPES, %$types );
@@ -276,30 +290,34 @@ sub new
 		foreach my $typetag (keys %{$classdef->{members}})
 		{
 			my $memdefs = $classdef->{members}{$typetag};
-	    
-			$memdefs = $classdef->{members}{$typetag} =
-			{ map { $_, $_ } @$memdefs } if (ref $memdefs eq 'ARRAY');
+
+			# Aha, so *here* is where the array is reschema'd.
+			$memdefs = $classdef->{members}{$typetag}
+			    = { map { $_, $_ } @$memdefs }
+				if (ref $memdefs eq 'ARRAY');
 
 			my $type = $self->{types}{$typetag};
 
-			croak("Unknow field type '$typetag', ",
-				  "did you forget some 'use Tangram::SomeType' ",
-				  "in your program?\n")
-				unless defined $types->{$typetag};
+			croak("Unknown field type '$typetag', ",
+			      "did you forget some 'use Tangram::SomeType' ",
+			      "in your program?\n")
+			    unless defined $types->{$typetag};
 
-			my @members = $types->{$typetag}->reschema($memdefs, $class, $self)
+			my @members = $types->{$typetag}->reschema
+			    ($memdefs, $class, $self)
 				if $memdefs;
 
 			for my $field (keys %$memdefs) {
-			  $memdefs->{$field}{name} = $field;
-			  my $fielddef = bless $memdefs->{$field}, ref $type;
-			  my @cols = $fielddef->get_export_cols( {} );
-			  $cols += @cols;
+			    $memdefs->{$field}{name} = $field;
+			    my $fielddef = bless $memdefs->{$field}, ref $type;
+			    my @cols = $fielddef->get_export_cols( {} );
+			    $cols += @cols;
 			}
 
-			@{$classdef->{member_type}}{@members} = ($type) x @members;
-	    
-			@{$classdef->{MEMDEFS}}{keys %$memdefs} = values %$memdefs;
+			@{$classdef->{member_type}}{@members}
+			    = ($type) x @members;
+			@{$classdef->{MEMDEFS}}{keys %$memdefs}
+			    = values %$memdefs;
 		}
 
 		$classdef->{stateless} = !$cols

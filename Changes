@@ -236,3 +236,56 @@ Revision history for Perl extension Tangram.
 	- Makefile.PL should now hopefully be more informative about
 	  which modules are needed for what.
 	- Removed Selfloader from Tangram::Ref (Kate Pugh)
+
+2.07.1, 29-Dec-2003 - SamV
+
+	- Tangram::IntrHash implemented at last :-).  Tangram::IxHash
+          and Tangram::IntrIxHash are next :->
+	- verbose error message in Tangram::Coll when demand paging is
+	  happening on stale tied collections (eg, erroneously created
+	  via dclone())
+	- some reformatting, as I grasp more of the code.
+	- fix for Postgres sub-select detection (Pedro Alves)
+	- make_1st_id_in_tx now only called for 1st insert
+	  (Chengzhi Liang)
+
+2.07.2, 6-Jan-2004 - SamV
+
+	- Tangram::IntrHash prefetch test added
+	- Documentation enhancements
+	- Tangram::Dump class to `fix' persistent references in data
+	  structures prior to insertion, so that :
+	- Tangram::PerlDump now can contain persistent objects safely
+	- and hey, why not write a Tangram::Storable 
+	- and a Tangram::YAML (not working, waiting for a CPAN bug to
+	  be fixed)
+
+2.07_03, 04-May-2004 - SamV
+
+	Most changes from Kurt <ks.perl@kurtstephens.com>, with many
+	thanks:
+
+        - Do not $self->{db}->disconnect in Storage::disconnect() and
+          DESTROY(), if $self->{db} eq $opts->{dbh} in
+          Tangram::Storage->connect($schema, $cs, $user, $pw, { 'dbh'
+           => ... } ); See $self->{db_owned}.
+        - Handle objects that lazily initialize Tangram::AbstractSet 
+          Set::Object fields.  See UMMF.
+        - Added IntrRef.pm ("Intrusive Ref") for 1-to-1 bi-directional 
+          Association navigation using only one column in one table.
+          Derived from IntrSet.  I need help with this one. :)
+	- Added @sums = $storage->sum([ $expr1, $expr2 ], ...) support.
+	- Added support for reused tables for mapping both sides of
+          many-to-many UML Associations to the same table with Tangram::Set
+          and Tangram::Array. See UMMF's example/ex1.
+	- Added support for timestamping all tables through
+          $schema->{sql}{timestamp_all_tables}.
+        - Prevent additional records in Tangram control table on redeploy.
+        - Added support for GROUP BY in Tangram::Cursor.
+        - Added COUNT($remote) and SUM($filter_expr) support.
+
+	Editorial release changes:
+		
+	- [SamV] Started using _NN version style, so CPAN marks it as
+	  a development release
+	- added brief test suite for aggregate functions
