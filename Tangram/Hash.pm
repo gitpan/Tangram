@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use strict;
 
 package Tangram::Hash;
@@ -9,7 +11,7 @@ use Carp;
 
 sub reschema
 {
-    my ($self, $members) = @_;
+    my ($self, $members, $class, $schema) = @_;
 
     foreach my $member (keys %$members)
     {
@@ -21,7 +23,7 @@ sub reschema
 			$members->{$member} = $def;
 		}
 
-		$def->{table} ||= $def->{class} . "_$member";
+		$def->{table} ||= $schema->{normalize}->($def->{class} . "_$member", 'tablename');
 		$def->{coll} ||= 'coll';
 		$def->{item} ||= 'item';
 		$def->{slot} ||= 'slot';
@@ -35,8 +37,6 @@ sub defered_save
 {
     my ($self, $storage, $obj, $members, $coll_id) = @_;
 
-    my $old_states = $storage->{scratch}{ref($self)}{$coll_id};
-
     foreach my $member (keys %$members)
     {
 		next if tied($obj->{$member});
@@ -48,7 +48,7 @@ sub defered_save
 	
 		my $coll = $obj->{$member};
 
-		my $old_state = $old_states->{$member} || {};
+		my $old_state = $self->get_load_state($storage, $obj, $member) || {};
 
 		my %removed = %$old_state;
 		delete @removed{ keys %$coll };
@@ -102,8 +102,9 @@ sub defered_save
 			$storage->sql_do( "DELETE FROM $table WHERE $coll_col = $coll_id AND $slot_col IN (@free)" );
 		}
 
-		$old_states->{$member} = \%new_state;
-		$storage->tx_on_rollback( sub { $old_states->{$member} = $old_state } );
+		$self->set_load_state($storage, $obj, $member, \%new_state );	
+		$storage->tx_on_rollback(
+            sub { $self->set_load_state($storage, $obj, $member, $old_state) } );
     }
 }
 
@@ -137,8 +138,8 @@ sub cursor						# ?? factorize ??
     my $item_col = $def->{item};
     my $slot_col = $def->{slot};
     $cursor->{-coll_tid} = $coll_tid;
-    $cursor->{-coll_cols} = ", t$coll_tid.$slot_col";
-    $cursor->{-coll_from} = ", $table t$coll_tid";
+    $cursor->{-coll_cols} = "t$coll_tid.$slot_col";
+    $cursor->{-coll_from} = "$table t$coll_tid";
     $cursor->{-coll_where} = "t$coll_tid.$coll_col = $coll_id AND t$coll_tid.$item_col = t$item_tid.id";
     
     return $cursor;
@@ -148,6 +149,12 @@ sub query_expr
 {
     my ($self, $obj, $members, $tid) = @_;
     map { Tangram::CollExpr->new($obj, $_); } values %$members;
+}
+
+sub remote_expr
+{
+    my ($self, $obj, $tid) = @_;
+    Tangram::CollExpr->new($obj, $self);
 }
 
 sub prefetch

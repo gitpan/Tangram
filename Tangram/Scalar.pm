@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use strict;
 
 use Tangram::Type;
@@ -8,55 +10,72 @@ use base qw( Tangram::Type );
 
 sub reschema
 {
-    my ($self, $members, $class) = @_;
+    my ($self, $members, $class, $schema) = @_;
 
     if (ref($members) eq 'ARRAY')
     {
 		# short form
 		# transform into hash: { fieldname => { col => fieldname }, ... }
-		$_[1] = map { $_ => { col => $_ } } @$members;
-		return @$members;
-		die 'coverok';
+		$members = $_[1] = map { $_ => { col => $schema->{normalize}->($_, 'colname') } } @$members;
     }
     
     for my $field (keys %$members)
     {
 		my $def = $members->{$field};
-		my $refdef = ref($def);
 
-		unless ($refdef)
+		unless (ref($def))
 		{
 			# not a reference: field => field
-			$members->{$field} = { col => $def || $field };
-			next;
+			$def = $members->{$field} = { col => $schema->{normalize}->(($def || $field), 'fieldname') };
 		}
 
-		die ref($self), ": $class\:\:$field: unexpected $refdef"
-			unless $refdef eq 'HASH';
-	
-		$def->{col} ||= $field;
+		$self->field_reschema($field, $def);
     }
 
     return keys %$members;
 }
 
+sub field_reschema
+  {
+	my ($self, $field, $def) = @_;
+	$def->{col} ||= $field;
+  }
+
 sub query_expr
 {
     my ($self, $obj, $memdefs, $tid, $storage) = @_;
-    my $dialect = $storage->{dialect};
-    return map { $dialect->expr($self, "t$tid.$memdefs->{$_}{col}", $obj) } keys %$memdefs;
+    return map { $storage->expr($self, "t$tid.$memdefs->{$_}{col}", $obj) } keys %$memdefs;
 }
 
-sub cols
+sub remote_expr
 {
-    my ($self, $members) = @_;
-    map { $_->{col } } values %$members;
+    my ($self, $obj, $tid, $storage) = @_;
+    $storage->expr($self, "t$tid.$self->{col}", $obj);
 }
 
-sub read
+sub get_exporter
+  {
+	my ($self) = @_;
+	return if $self->{automatic};
+	my $field = $self->{name};
+	return "exists \$obj->{$field} ? \$obj->{$field} : undef";
+  }
+
+sub get_importer
+  {
+	my ($self) = @_;
+	return "\$obj->{$self->{name}} = shift \@\$row";
+  }
+
+sub get_export_cols
 {
-    my ($self, $row, $obj, $members) = @_;
-    @$obj{keys %$members} = splice @$row, 0, keys %$members;
+  return shift->{col};
+}
+
+sub get_import_cols
+{
+    my ($self, $context) = @_;
+	return $self->{col};
 }
 
 sub literal
@@ -75,20 +94,10 @@ package Tangram::Number;
 
 use base qw( Tangram::Scalar );
 
-sub save
+sub get_export_cols
 {
-    my ($self, $cols, $vals, $obj, $members) = @_;
-
-    foreach my $member (keys %$members)
-    {
-		my $memdef = $members->{$member};
-
-		next if $memdef->{automatic};
-
-		push @$cols, $memdef->{col};
-		push @$vals, exists($obj->{$member}) && defined ($obj->{$member})
-			? $obj->{$member} : 'NULL';
-    }
+    my ($self) = @_;
+    return exists $self->{automatic} ? () : ($self->{col});
 }
 
 package Tangram::Integer;
@@ -107,39 +116,6 @@ package Tangram::String;
 use base qw( Tangram::Scalar );
 
 $Tangram::Schema::TYPES{string} = Tangram::String->new;
-
-sub quote
-{
-	my $val = shift;
-	return 'NULL' unless $val;
-	$val =~ s/'/''/g;	# 'emacs
-	return "'$val'";
-}
-
-sub save
-  {
-    my ($self, $cols, $vals, $obj, $members, $storage) = @_;
-    
-    my $dbh = $storage->{db};
-    
-    foreach my $member (keys %$members)
-      {
-	my $memdef = $members->{$member};
-	
-	next if $memdef->{automatic};
-	
-	push @$cols, $memdef->{col};
-	
-	if (exists $obj->{$member})
-	  {
-	    push @$vals, $dbh->quote($obj->{$member});
-	  }
-	else
-	  {
-	    push @$vals, 'NULL';
-	  }
-      }
-  }
 
 sub literal
   {

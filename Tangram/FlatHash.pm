@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use strict;
 
 package Tangram::FlatHash::Expr;
@@ -54,7 +56,7 @@ $Tangram::Schema::TYPES{flat_hash} = Tangram::FlatHash->new;
 
 sub reschema
 {
-    my ($self, $members, $class) = @_;
+    my ($self, $members, $class, $schema) = @_;
     
     for my $field (keys %$members)
     {
@@ -69,7 +71,7 @@ sub reschema
 						    };
 		}
 
-		$def->{table} ||= $class . "_$field";
+		$def->{table} ||= $schema->{normalize}->($class . "_$field", 'tablename');
 		$def->{type} ||= 'string';
 		$def->{string_type} = $def->{type} eq 'string';
 		$def->{sql} ||= $def->{string_type} ? 'VARCHAR(255)' : uc($def->{type});
@@ -88,15 +90,14 @@ sub demand
 	print $Tangram::TRACE "loading $member\n" if $Tangram::TRACE;
    
 	my %coll;
+	my $id = $storage->export_object($obj);
 
-	if (my $prefetch = $storage->{PREFETCH}{$class}{$member}{$storage->id($obj)})
+	if (my $prefetch = $storage->{PREFETCH}{$class}{$member}{$id})
 	{
 		%coll = %$prefetch;
 	}
 	else
 	{
-		my $id = $storage->id($obj);
-
 		my $sth = $storage->sql_prepare(
             "SELECT a.k, a.v FROM $def->{table} a WHERE coll = $id", $storage->{db});
 
@@ -114,12 +115,16 @@ sub demand
 	return \%coll;
 }
 
-sub save
-{
-	my ($self, $cols, $vals, $obj, $members, $storage, $table, $id) = @_;
-	$storage->defer(sub { $self->defered_save(shift, $obj, $members, $id) } );
-	return ();
-}
+sub get_exporter
+  {
+	my ($self, $context) = @_;
+
+	return sub {
+	  my ($obj, $context) = @_;
+	  $self->defered_save($context->{storage}, $obj, $self->{name}, $self);
+	  ();
+	}
+  }
 
 sub hash_diff {
   my ($first,$second,$differ) = @_;
@@ -146,46 +151,43 @@ sub hash_diff {
 }
 
 sub defered_save
-{
+  {
 	use integer;
+	
+	my ($self, $storage, $obj, $field, $def) = @_;
+	
+	return if tied $obj->{$field}; # collection has not been loaded, thus not modified
 
-	my ($self, $storage, $obj, $members, $coll_id) = @_;
-
-	foreach my $member (keys %$members)
-	{
-		next if tied $obj->{$member}; # collection has not been loaded, thus not modified
-		
-		my $def = $members->{$member};
-		
-		my ($ne, $modify, $add, $remove) =
-			$self->get_save_closures($storage, $obj, $def, $coll_id);
-
-		my $new_state = $obj->{$member} || {};
-		my $old_state = $self->get_load_state($storage, $obj, $member) || {};
-
-		my ($common, $changed, $to_add, $to_remove) = hash_diff($new_state, $old_state, $ne);
-            
-		for my $key (@$changed)
-		{
-			$modify->($key, $new_state->{$key}, $old_state->{$key});
-		}
-
-		for my $key (@$to_add)
-		{
-			$add->($key, $new_state->{$key});
-		}
-
-		for my $key (@$to_remove)
-		{
-			$remove->($key);
-		}
-
-		$self->set_load_state($storage, $obj, $member, { %$new_state } );	
-
-		$storage->tx_on_rollback(
-            sub { $self->set_load_state($storage, $obj, $member, $old_state) } );
-	}
-}
+	my $coll_id = $storage->id($obj);
+	
+	my ($ne, $modify, $add, $remove) =
+	  $self->get_save_closures($storage, $obj, $def, $coll_id);
+	
+	my $new_state = $obj->{$field} || {};
+	my $old_state = $self->get_load_state($storage, $obj, $field) || {};
+	
+	my ($common, $changed, $to_add, $to_remove) = hash_diff($new_state, $old_state, $ne);
+	
+	for my $key (@$changed)
+	  {
+		$modify->($key, $new_state->{$key}, $old_state->{$key});
+	  }
+	
+	for my $key (@$to_add)
+	  {
+		$add->($key, $new_state->{$key});
+	  }
+	
+	for my $key (@$to_remove)
+	  {
+		$remove->($key);
+	  }
+	
+	$self->set_load_state($storage, $obj, $field, { %$new_state } );	
+	
+	$storage->tx_on_rollback(
+							 sub { $self->set_load_state($storage, $obj, $field, $old_state) } );
+  }
 
 my $no_ref = 'illegal reference in flat hash';
 
@@ -216,13 +218,15 @@ sub get_save_closures
 		$key_quote = sub { shift() };
 	}
 	
+	my $eid = $storage->{export_id}->($id);
+
 	my $modify = sub
 	{
 		my ($k, $v) = @_;
 		die $no_ref if (ref($v) or ref($k));
 		$v = $quote->($v);
 		$k = $key_quote->($k);
-		$storage->sql_do("UPDATE $table SET v = $v WHERE coll = $id AND k = $k");
+		$storage->sql_do("UPDATE $table SET v = $v WHERE coll = $eid AND k = $k");
 	};
 
 	my $add = sub
@@ -231,7 +235,7 @@ sub get_save_closures
 		die $no_ref if (ref($v) or ref($k));
 		$v = $quote->($v);
 		$k = $key_quote->($k);
-		$storage->sql_do("INSERT INTO $table (coll, k, v) VALUES ($id, $k, $v)");
+		$storage->sql_do("INSERT INTO $table (coll, k, v) VALUES ($eid, $k, $v)");
 	};
 
 	my $remove = sub
@@ -239,7 +243,7 @@ sub get_save_closures
 		my ($k) = @_;
 		die $no_ref if ref($k);
 		$k = $key_quote->($k);
-		$storage->sql_do("DELETE FROM $table WHERE coll = $id AND k = $k");
+		$storage->sql_do("DELETE FROM $table WHERE coll = $eid AND k = $k");
 	};
 
 	return ($ne, $modify, $add, $remove);
@@ -248,6 +252,8 @@ sub get_save_closures
 sub erase
 {
 	my ($self, $storage, $obj, $members, $coll_id) = @_;
+
+	$coll_id = $storage->{export_id}->($coll_id);
 
 	foreach my $def (values %$members)
 	{
@@ -275,6 +281,12 @@ sub query_expr
 {
 	my ($self, $obj, $members, $tid) = @_;
 	map { Tangram::FlatHash::Expr->new($obj, $_); } values %$members;
+}
+
+sub remote_expr
+{
+	my ($self, $obj, $tid) = @_;
+	Tangram::FlatHash::Expr->new($obj, $self);
 }
 
 sub prefetch

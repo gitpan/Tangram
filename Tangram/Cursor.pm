@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use strict;
 
 package Tangram::Cursor;
@@ -7,24 +9,44 @@ use Carp;
 
 sub new
 {
-	my ($pkg, $storage, $target, $conn) = @_;
+	my ($pkg, $storage, $remote, $conn) = @_;
 
 	confess unless $conn;
 
-	my $implicit = ref $target ? $target->object : $storage->cursor_object($target);
-	$target = Tangram::CursorObject->copy($implicit);
+	$remote = $storage->remote($remote)
+	  unless ref $remote;
 
 	my $self = {};
 
-	$self->{-storage} = $storage;
-	$self->{-target} = $target->{class};
-	$self->{-stored} = $target;
-	$self->{-implicit} = $implicit;
-	$self->{-selects} = [];
-	$self->{-conn} = $conn;
+	$self->{TARGET} = $remote;
+	$self->{STORAGE} = $storage;
+	$self->{SELECTS} = [];
+	$self->{CONNECTION} = $conn;
+	$self->{OWN_CONNECTION} = $conn != $storage->{db};
 
 	bless $self, $pkg;
 }
+
+sub DESTROY
+  {
+	my $self = shift;
+	$self->close();
+  }
+
+sub close
+  {
+	my $self = shift;
+
+	if ($self->{SELECTS}) {
+	  for my $select ( @{ $self->{SELECTS} } ) {
+		my $sth = $select->[1] or next;
+		$sth->finish() if $sth->{Active};
+	  }
+	}
+
+	$self->{CONNECTION}->disconnect()
+	  if $self->{OWN_CONNECTION};
+  }
 
 sub select
 {
@@ -44,161 +66,73 @@ sub select
 	$self->{-order} = $args{order};
 	$self->{-desc} = $args{desc};
 	$self->{-distinct} = $args{distinct};
+	$self->{-limit} = $args{limit};
 
 	$self->retrieve( @{ $args{retrieve} } ) if exists $args{retrieve};
 
-	local $stored = $self->{-stored};
-   
-	local %done = map { $_ => 1 } $stored->parts();
-	delete $done{ $stored->class };
+	my $target = $self->{TARGET};
 
-	my $filter = Tangram::Filter->new( tight => 100, objects => Set::Object->new($stored) );
+	my (@filter_from, @filter_where);
+
+	my $filter = Tangram::Filter->new( tight => 100, objects => Set::Object->new() );
 
 	if (my $user_filter = $args{filter})
 	{
 		$filter->{expr} = $user_filter->{expr};
 		$filter->{objects}->insert($user_filter->{objects}->members);
-		$filter->{objects}->remove($self->{-implicit});
+		$filter->{objects}->remove($target->object);
 	}
 
-	$self->_select($self->{-target}, $filter);
+	$self->{SELECTS} = [ map {
+	  [ $self->build_select( $_, [], [ $filter->from ],  [ $filter->where ]), undef, $_ ]
+	} $self->{STORAGE}->get_polymorphic_select( $target->class ) ];
 
-	return undef unless @{$self->{-selects}}; 
+	$self->{position} = -1;
 
-	my $select = shift @{$self->{-selects}};
-	return undef unless $select;
-
-	my ($sql, @parts) = @$select;
-	$self->{parts} = \@parts;
-	$self->{-cursor} = $self->{-storage}->sql_cursor($sql, $self->{-conn});
-
-	return $self->next;
+	return $self->execute();
 }
 
-sub _select
-{
-	my ($self, $class, $filter) = @_;
+sub execute
+  {
+	my ($self) = @_;
+	return $self->{-current} if $self->{position} == 0;
+	$self->{cur_select} = [ @{ $self->{SELECTS} } ];
+	return $self->prepare_next_statement() && $self->next();
+  }
 
-	return if exists $done{$class};
+sub prepare_next_statement
+  {
+	my ($self) = @_;
 
-	$done{$class} = 1;
+	my $select = $self->{ACTIVE} = shift @{ $self->{cur_select} } or return undef;
 
-	my $storage = $self->{-storage};
-	my $schema = $storage->{schema};
-	my $classes = $schema->{classes};
-	my $classdef = $classes->class($class);
-	my $class2id = $storage->{class2id};
-	my $stored = $self->{-stored};
+	my ($sql, $sth, $template) = @$select;
 
-	if ($classdef->{specs} && @{$classdef->{specs}} || $classdef->{stateless})
-	{
-		my @shared = ( ($classdef->{abstract} ? () : $class), # concat lists
-					   map { _select_shared($_, $classes) } @{$classdef->{specs}} );
+	$self->{sth}->finish() if $self->{sth};
 
-		if (@shared)
-		{
-			my $cols = $stored->cols;
-			my $from = $filter->from;
-			my $cid = $stored->class_id_col;
+	$sth = $select->[1] = $self->{STORAGE}->sql_prepare($sql, $self->{CONNECTION})
+	  unless $sth;
 
-			my $where = join ' AND ',
-				"$cid IN (" . join(', ', map { $storage->class_id($_) } @shared) . ')',
-					$filter->where;
-         
-			push @{$self->{-selects}}, [ $self->build_select($cols, $from, $where), $stored->parts ];
-		}
+	$self->{sth} = $sth;
 
-		foreach my $spec (@{$classdef->{specs}})
-		{
-			$self->_select_unshared($spec, $filter);
-		}
-	}
+	$sth->execute();
 
-	elsif (!$classdef->{abstract})
-	{
-		my $cols = $stored->cols;
-		my $from = $filter->from;
-		my $where = $filter->where;
-		push @{$self->{-selects}}, [ $self->build_select($cols, $from, $where), $stored->parts ];
-	}
-}
-
-sub _select_shared
-{
-	my ($class, $classes) = @_;
-
-	return () if $done{$class};
-
-	my $classdef = $classes->class($class);
-	return () unless $classdef->{stateless} && @{ $classdef->{bases} } <= 1;
-
-	$done{$class} = 1;
-
-	( ($classdef->{abstract} ? () : $class), # concat lists
-	  map { _select_shared($_, $classes) } @{$classdef->{specs}} );
-}
-
-sub _select_unshared
-{
-	my ($self, $class, $filter) = @_;
-
-	my $classes = $self->{-storage}{schema}{classes};
-	my $classdef = $classes->{$class};
-
-	if ($classdef->{stateless} && @{ $classdef->{bases} } <= 1)
-	{
-		foreach my $spec (@{$classdef->{specs}})
-		{
-			$self->_select_unshared($spec, $filter);
-		}
-	}
-	else
-	{
-		my $mark = $stored->mark();
-      
-		$stored->push_spec($class) unless $classdef->{stateless};
-
-		my $bases = $classdef->{bases};
-
-		if (@$bases > 1)
-		{
-			my $schema = $self->{-storage}{schema};
-
-			foreach my $base ( @$bases )
-			{
-				next if $done{$base};
-
-				$schema->visit_up( $base,
-								   sub
-								   {
-									   my $base = shift;
-									   $stored->push_spec( $base ) unless $classes->{$base}{stateless} || $done{$base};
-									   $done{$base} = 1;
-								   } );
-			}
-		}
-
-		$self->_select($class, $filter);
-      
-		$stored->pop_spec($mark);
-	}
-}
+	return $sth;
+  }
 
 sub build_select
 {
-	my ($self, $cols, $from, $where) = @_;
+	my ($self, $template, $cols, $from, $where) = @_;
 
 	if (my $retrieve = $self->{-retrieve})
 	{
-		$cols = join ', ', $cols, map { $_->{expr} } @$retrieve;
+		@$cols = map { $_->{expr} } @$retrieve;
 	}
 
-	my $select = "SELECT";
-
-	$select .= ' DISTINCT' if $self->{-distinct};
-
-	$select .= " $cols\n\tFROM $from\n\t";
-	$select .= "WHERE $where" if $where;
+	my $select = $template->instantiate( $self->{TARGET}, $cols, $from, $where);
+	
+	substr($select, length('SELECT'), 0) = ' DISTINCT'
+	  if $self->{-distinct};
 
 	if (my $order = $self->{-order})
 	{
@@ -210,6 +144,8 @@ sub build_select
 		$select .= ' DESC';
 	}
 
+	$select .= " LIMIT $self->{-limit}" if defined $self->{-limit};
+
 	return $select;
 }
 
@@ -218,36 +154,28 @@ sub _next
 	my ($self) = @_;
 
 	$self->{-current} = undef;
+	++$self->{position};
+
+	my $sth = $self->{sth};
 	my @row;
 
 	while (1)
 	{
-		@row = $self->{-cursor}->fetchrow;
+		@row = $sth->fetchrow();
 		last if @row;
-
-		my $select = shift @{$self->{-selects}};
-      
-		unless ($select)
-		{
-			$self->{-cursor}->close();
-			return undef;
-		}
-
-		$self->{-cursor}{statement}->finish;
-
-		my ($sql, @parts) = @$select;
-		$self->{parts} = \@parts;
-		$self->{-cursor} = $self->{-storage}->sql_cursor($sql, $self->{-conn});
+		$sth = $self->prepare_next_statement() or return undef;
 	}
 
-	my $id = shift @row;
-	my $storage = $self->{-storage};
+	my $storage = $self->{STORAGE};
 
-	my $classId = shift @row;
+	my ($id, $classId, $state) = $self->{ACTIVE}[-1]->extract(\@row);
+
+	$id = $storage->{import_id}->($id, $classId);
+
 	my $class = $storage->{id2class}{$classId} or die "unknown class id $classId";
 
 	# even if object is already loaded we must read it so that @rpw only contains residue
-	my $obj = $storage->read_object($id, $class, \@row, @{ $self->{parts} } );
+	my $obj = $storage->read_object($id, $class, $state);
 
 	$self->{-residue} = exists $self->{-retrieve}
 		? [ map { ref $_ ? $_->{type}->read_data(\@row) : shift @row } @{$self->{-retrieve}} ]
@@ -300,12 +228,6 @@ sub object
 	return $self->{object};
 }
 
-sub close
-{
-	my ($self) = @_;
-	$self->{-cursor}->close();
-}
-
 package Tangram::DataCursor;
 
 use Carp;
@@ -319,6 +241,7 @@ sub open
 	bless
 	{
 	 select => $select,
+	 storage => $storage,
 	 cursor => $storage->sql_cursor(substr($select->{expr}, 1, -1), $conn),
 	}, $type;
 }
@@ -349,5 +272,18 @@ sub new
 	my $pkg = shift;
 	return bless [ @_ ] , $pkg;
 }
+
+sub DESTROY
+  {
+	my $self = shift;
+	$self->close();
+  }
+
+sub close
+  {
+	my $self = shift;
+	$self->{cursor}{connection}->disconnect()
+	  unless $self->{cursor}{connection} == $self->{storage}{db};
+  }
 
 1;

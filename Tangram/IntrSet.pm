@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use strict;
 
 use Tangram::AbstractSet;
@@ -30,9 +32,12 @@ sub reschema
 		{
 			my $back = $def->{back} ||= $def->{coll};
 			$schema->{classes}{ $def->{class} }{members}{backref}{$back} =
-			{
-			 col => $def->{coll} };
-			die '***' unless $schema->{types}{backref};
+			  bless {
+					 name => $back,
+					 col => $def->{coll},
+					 class => $class,
+					 field => $member
+					}, 'Tangram::BackRef';
 		}
 	}
    
@@ -40,39 +45,33 @@ sub reschema
 }
 
 sub defered_save
-{
-	my ($self, $storage, $obj, $members, $coll_id) = @_;
-
+  {
+	my ($self, $storage, $obj, $field, $def) = @_;
+	
+	return  if tied $obj->{$field};
+	
+	my $coll_id = $storage->export_object($obj);
 	my $classes = $storage->{schema}{classes};
-
-	foreach my $member (keys %$members)
-	{
-		next if tied $obj->{$member};
-		next unless exists $obj->{$member} && defined $obj->{$member};
-
-		my $def = $members->{$member};
-      
-		my $item_classdef = $classes->{$def->{class}};
-		my $table = $item_classdef->{table};
-		my $item_col = $def->{coll};
-      
-		$self->update($storage, $obj, $member,
-					  sub
-					  {
-						  my $sql = "UPDATE $table SET $item_col = $coll_id WHERE id = @_";
-						  $storage->sql_do($sql);
-					  },
-
-					  sub
-					  {
-						  my $sql = "UPDATE $table SET $item_col = NULL WHERE id = @_ AND $item_col = $coll_id";
-						  $storage->sql_do($sql);
-					  } );
-	}
-}
+	my $item_classdef = $classes->{$def->{class}};
+	my $table = $item_classdef->{table};
+	my $item_col = $def->{coll};
+	
+	$self->update($storage, $obj, $field,
+				  sub
+				  {
+					my $sql = "UPDATE $table SET $item_col = $coll_id WHERE id = @_";
+					$storage->sql_do($sql);
+				  },
+				  
+				  sub
+				  {
+					my $sql = "UPDATE $table SET $item_col = NULL WHERE id = @_ AND $item_col = $coll_id";
+					$storage->sql_do($sql);
+				  } );
+  }
 
 sub demand
-{
+  {
 	my ($self, $def, $storage, $obj, $member, $class) = @_;
 
 	my $set = Set::Object->new();
@@ -87,8 +86,8 @@ sub demand
 
 		my $cursor = Tangram::CollCursor->new($storage, $def->{class}, $storage->{db});
 
-		my $coll_id = $storage->id($obj);
-		my $tid = $cursor->{-stored}->leaf_table;
+		my $coll_id = $storage->export_object($obj);
+		my $tid = $cursor->{TARGET}->object->{table_hash}{$def->{class}}; # leaf_table;
 		$cursor->{-coll_where} = "t$tid.$def->{coll} = $coll_id";
    
 		$set->insert($cursor->select);
@@ -102,6 +101,8 @@ sub demand
 sub erase
 {
 	my ($self, $storage, $obj, $members, $coll_id) = @_;
+
+	$coll_id = $storage->{export_id}->($coll_id);
 
 	foreach my $member (keys %$members)
 	{
@@ -125,6 +126,12 @@ sub query_expr
 {
 	my ($self, $obj, $members, $tid) = @_;
 	map { Tangram::IntrCollExpr->new($obj, $_); } values %$members;
+}
+
+sub remote_expr
+{
+	my ($self, $obj, $tid) = @_;
+	Tangram::IntrCollExpr->new($obj, $self);
 }
 
 sub prefetch

@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use strict;
 
 use Tangram::Type;
@@ -7,15 +9,21 @@ package Tangram::Coll;
 
 use base qw( Tangram::Type );
 
-sub members
-{
-	my ($self, $members) = @_;
-	keys %$members;
-}
-
-sub cols
-{
+sub get_import_cols
+  {
 	()
+  }
+
+sub get_importer
+{
+  my ($self, $context) = @_;
+  my $class = $context->{class}{name};
+  my $field = $self->{name};
+  
+  return sub {
+	my ($obj, $row, $context) = @_;
+	tie $obj->{$field}, 'Tangram::CollOnDemand', $self, $self, $context->{storage}, $context->{id}, $self->{name}, $class;
+	}
 }
 
 sub read
@@ -123,7 +131,7 @@ sub includes
 		}
 		else
 		{
-			$target = $coll->{storage}->id($item)
+			$target = $coll->{storage}->export_object($item)
 				or die "'$item' is not a persistent object";
 		}
 	}
@@ -171,12 +179,12 @@ sub includes
 				)
 			}
 
-		$item_id = $storage->id($item);
+		$item_id = $storage->export_object($item);
 
 	}
 	else
 	{
-		$item_id = $item;
+		$item_id = $storage->{export_id}->($item);
 	}
 
 	my $remote = $storage->remote($item_class);
@@ -241,25 +249,22 @@ package Tangram::CollCursor;
 
 sub build_select
 {
-	my ($self, $cols, $from, $where) = @_;
+	my ($self, $template, $cols, $from, $where) = @_;
 
-	if ($self->{-coll_where})
-	{
-		$where .= ' AND ' if $where;
-		$where .= "$self->{-coll_where}" if $self->{-coll_where};
-	}
+	push @$where, $self->{-coll_where}
+	if $self->{-coll_where};
 
-	$where = $where && "WHERE $where";
-	$cols .= $self->{-coll_cols} if exists $self->{-coll_cols};
-	$from .= $self->{-coll_from} if exists $self->{-coll_from};
-	"SELECT $cols\n\tFROM $from\n\t$where";
+	push @$cols, $self->{-coll_cols} if exists $self->{-coll_cols};
+	push @$from, $self->{-coll_from} if exists $self->{-coll_from};
+	
+	$self->SUPER::build_select($template, $cols, $from, $where);
 }
 
 sub DESTROY
 {
 	my ($self) = @_;
 	#print "@{[ keys %$self ]}\n";
-	$self->{-storage}->free_table($self->{-coll_tid});
+	# $self->{-storage}->free_table($self->{-coll_tid});
 }
 
 package Tangram::BackRefOnDemand;
@@ -269,9 +274,13 @@ use base qw( Tangram::RefOnDemand );
 sub FETCH
 {
 	my $self = shift;
-	my ($storage, $id, $member, $refid) = @$self;
+	my ($storage, $id, $member, $refid, $class, $field) = @$self;
 	my $obj = $storage->{objects}{$id};
-	my $refobj = $storage->load($refid);
+
+	my $owner = $storage->remote($class);
+	my ($refobj) = $storage->select($owner, $owner->{$field}->includes($obj));
+#	my $refobj = $storage->load($refid);
+
 	untie $obj->{$member};
 	$obj->{$member} = $refobj;	# weak
 	return $refobj;
@@ -283,30 +292,31 @@ use base qw( Tangram::Scalar );
 
 $Tangram::Schema::TYPES{backref} = Tangram::BackRef->new;
 
-sub save
+sub get_export_cols
+  {
+	()
+  }
+
+sub get_exporter
+  {
+  }
+
+sub get_importer
 {
-	() # do nothing; save is done by the collection
-}
+  my ($self, $context) = @_;
+  my $field = $self->{name};
 
-sub read
-{
-	my ($self, $row, $obj, $members, $storage) = @_;
-   
-	my $id = $storage->id($obj);
+  return sub {
+	my ($obj, $row, $context) = @_;
 
-	foreach my $r (keys %$members)
-	{
-		my $rid = shift @$row;
+	my $rid = shift @$row;
 
-		if ($rid)
-		{
-			tie $obj->{$r}, 'Tangram::BackRefOnDemand', $storage, $id, $r, $rid;
-		}
-		else
-		{
-			$obj->{$r} = undef;
-		}
+	if ($rid) {
+	  tie $obj->{$field}, 'Tangram::BackRefOnDemand', $context->{storage}, $context->{id}, $self->{name}, $rid, $self->{class}, $self->{field};
+	} else {
+	  $obj->{$field} = undef;
 	}
+  }
 }
 
 package Tangram::Alias;

@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use strict;
 
 package Tangram::FlatArray::Expr;
@@ -8,13 +10,21 @@ sub new
 	bless [ @_ ], $pkg;
 }
 
+sub quote
+  {
+	my $item = shift or return 'NULL';
+	$item =~ s/'/''/g;	# 'emacs ;
+	$item = "'$item'";
+	return $item;
+  }
+
 sub includes
 {
 	my ($self, $item) = @_;
 	my ($coll, $memdef) = @$self;
 
-	$item = Tangram::String::quote($item)
-		if $memdef->{string_type};
+	$item = quote($item)
+	  if $memdef->{string_type};
 
 	my $coll_tid = 't' . $coll->root_table;
 	my $data_tid = 't' . Tangram::Alias->new;
@@ -33,8 +43,8 @@ sub exists
 	my ($self, $item) = @_;
 	my ($coll, $memdef) = @$self;
 
-	$item = Tangram::String::quote($item)
-		if $memdef->{string_type};
+	$item = quote($item)
+	  if $memdef->{string_type};
 
 	my $coll_tid = 't' . $coll->root_table;
 
@@ -54,7 +64,7 @@ $Tangram::Schema::TYPES{flat_array} = Tangram::FlatArray->new;
 
 sub reschema
 {
-    my ($self, $members, $class) = @_;
+    my ($self, $members, $class, $schema) = @_;
     
     for my $field (keys %$members)
     {
@@ -67,7 +77,7 @@ sub reschema
 			$def = $members->{$field} = { type => 'string' };
 		}
 
-		$def->{table} ||= $class . "_$field";
+		$def->{table} ||= $schema->{normalize}->($class . "_$field", 'tablename');
 		$def->{type} ||= 'string';
 		$def->{string_type} = $def->{type} eq 'string';
 		$def->{sql} ||= $def->{string_type} ? 'VARCHAR(255)' : uc($def->{type});
@@ -83,15 +93,14 @@ sub demand
 	print $Tangram::TRACE "loading $member\n" if $Tangram::TRACE;
    
 	my @coll;
+	my $id = $storage->export_object($obj);
 
-	if (my $prefetch = $storage->{PREFETCH}{$class}{$member}{$storage->id($obj)})
+	if (my $prefetch = $storage->{PREFETCH}{$class}{$member}{$id})
 	{
 		@coll = @$prefetch;
 	}
 	else
 	{
-		my $id = $storage->id($obj);
-
 		my $sth = $storage->sql_prepare(
             "SELECT a.i, a.v FROM $def->{table} a WHERE coll = $id", $storage->{db});
 
@@ -109,12 +118,16 @@ sub demand
 	return \@coll;
 }
 
-sub save
-{
-	my ($self, $cols, $vals, $obj, $members, $storage, $table, $id) = @_;
-	$storage->defer(sub { $self->defered_save(shift, $obj, $members, $id) } );
-	return ();
-}
+sub get_exporter
+  {
+	my ($self, $context) = @_;
+
+	return sub {
+	  my ($obj, $context) = @_;
+	  $self->defered_save($context->{storage}, $obj, $self->{name}, $self);
+	  ();
+	}
+  }
 
 my $no_ref = 'illegal reference in flat array';
 
@@ -137,12 +150,14 @@ sub get_save_closures
 		$quote = sub { shift() };
 	}
 
+	my $eid = $storage->{export_id}->($id);
+
 	my $modify = sub
 	{
 		my ($i, $v) = @_;
 		die $no_ref if ref($v);
 		$v = $quote->($v);
-		$storage->sql_do("UPDATE $table SET v = $v WHERE coll = $id AND i = $i");
+		$storage->sql_do("UPDATE $table SET v = $v WHERE coll = $eid AND i = $i");
 	};
 
 	my $add = sub
@@ -150,13 +165,13 @@ sub get_save_closures
 		my ($i, $v) = @_;
 		die $no_ref if ref($v);
 		$v = $quote->($v);
-		$storage->sql_do("INSERT INTO $table (coll, i, v) VALUES ($id, $i, $v)");
+		$storage->sql_do("INSERT INTO $table (coll, i, v) VALUES ($eid, $i, $v)");
 	};
 
 	my $remove = sub
 	{
 		my ($new_size) = @_;
-		$storage->sql_do("DELETE FROM $table WHERE coll = $id AND i >= $new_size");
+		$storage->sql_do("DELETE FROM $table WHERE coll = $eid AND i >= $new_size");
 	};
 
 	return ($ne, $modify, $add, $remove);
@@ -165,6 +180,8 @@ sub get_save_closures
 sub erase
 {
 	my ($self, $storage, $obj, $members, $coll_id) = @_;
+
+	$coll_id = $storage->{export_id}->($coll_id);
 
 	foreach my $def (values %$members)
 	{
@@ -194,6 +211,12 @@ sub query_expr
 	map { Tangram::FlatArray::Expr->new($obj, $_); } values %$members;
 }
 
+sub remote_expr
+{
+	my ($self, $obj, $tid) = @_;
+	Tangram::FlatArray::Expr->new($obj, $self);
+}
+
 sub prefetch
 {
 	my ($self, $storage, $def, $coll, $class, $member, $filter) = @_;
@@ -211,6 +234,8 @@ sub prefetch
 		my ($id, $i, $v) = @$row;
 		$prefetch->{$id}[$i] = $v;
 	}
+
+	# use Data::Dumper;	print STDERR Dumper $storage->{PREFETCH}, "\n";
 
 	return $prefetch;
 }

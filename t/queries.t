@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use strict;
 use t::Springfield;
 
@@ -78,7 +80,7 @@ Springfield::leaktest;
    my ($person) = $storage->remote(qw( NaturalPerson ));
 
    my @results = $storage->select( $person, $person->{partner} != undef );
-   #print scalar(@results), "\n";
+   print join(' ', map { $_->{firstName} } @results), "\n";
 
    Springfield::test(
       join( ' ', sort map { $_->{firstName} } @results ) eq 'Homer Marge' );

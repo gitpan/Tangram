@@ -8,9 +8,7 @@ use Tangram::RawDateTime;
 
 use Tangram::FlatArray;
 use Tangram::FlatHash;
-
-use Tangram::Dialect::Sybase;
-use Tangram::Dialect::Mysql;
+use Tangram::PerlDump;
 
 package Springfield;
 
@@ -18,7 +16,7 @@ use vars qw( $schema @ISA @EXPORT );
 
 require Exporter;
 @ISA = qw( Exporter );
-@EXPORT = qw( optional_tests $schema testcase leaktest );
+@EXPORT = qw( &optional_tests $schema testcase &leaktest &test &begin_tests &tests_for_dialect $dialect );
 
 $schema = Tangram::Schema->new( {
 
@@ -27,14 +25,13 @@ $schema = Tangram::Schema->new( {
 
    sql =>
    {
-	   cid_size => 2,
-	   
+	   cid_size => 3,
    },
 
    class_table => 'Classes',
 								  
    classes =>
-   {
+   [
       Person =>
       {
          abstract => 1,
@@ -68,7 +65,7 @@ $schema = Tangram::Schema->new( {
 
 		array =>
 		{
-		 a_children =>
+		 children =>
 		 {
 		  class => 'NaturalPerson',
 		  table => 'a_children',
@@ -82,14 +79,14 @@ $schema = Tangram::Schema->new( {
 		 }
 		},
 
-		hash =>
-		{
-		 h_opinions =>
-		 {
-		  class => 'Opinion',
-		  table => 'h_opinions',
-		 }
-		},
+# 		hash =>
+# 		{
+# 		 h_opinions =>
+# 		 {
+# 		  class => 'Opinion',
+# 		  table => 'h_opinions',
+# 		 }
+# 		},
 
 		iarray =>
 		{
@@ -127,8 +124,9 @@ $schema = Tangram::Schema->new( {
 
 		flat_array => [ qw( interests ) ],
 
-	        flat_hash => [ qw( opinions ) ],
+		flat_hash => [ qw( opinions ) ],
 
+		perl_dump => [ qw( brains ) ],
 	   },
       },
 
@@ -204,45 +202,56 @@ $schema = Tangram::Schema->new( {
 	 }
 	},
 
-   } } );
+   ] } );
 
-use vars qw( $cs $user $passwd);
+use vars qw( $cs $user $passwd $dialect );
 
 {
-   local $/;
-
-   my $config = $ENV{TANGRAM_CONFIG} || 'CONFIG';
-   
-   open CONFIG, $config
-   or open CONFIG, "t/$config"
-   or open CONFIG, "../t/$config"
-   or die "Cannot open t/$config, reason: $!";
-
-   ($cs, $user, $passwd) = split "\n", <CONFIG>;
+  local $/;
+  
+  my $config = $ENV{TANGRAM_CONFIG} || 'CONFIG';
+  
+  open CONFIG, $config
+	or open CONFIG, "t/$config"
+	  or open CONFIG, "../t/$config"
+		or die "Cannot open t/$config, reason: $!";
+  
+  ($cs, $user, $passwd) = split "\n", <CONFIG>;
+  
+  $dialect = 'Tangram::' . (split ':', $cs)[1]; # deduce dialect from DBI driver
+  eval "use $dialect";
+  $dialect = 'Tangram::Relational' if $@;
 }
 
 my $no_tx;
 
 sub connect
-{
-   my $storage = Tangram::Storage->connect($Springfield::schema, $cs, $user, $passwd) || die;
+  {
+	my $schema = shift || $Springfield::schema;
+	my $storage = $dialect->connect($schema, $cs, $user, $passwd) || die;
 	$no_tx = $storage->{no_tx};
 	return $storage;
-}
+  }
 
-sub connect_empty
-{
-   my $storage = Springfield::connect;
+sub empty
+  {
+	my $storage = shift || Springfield::connect;
+	my $schema = shift || $Springfield::schema;
 	my $conn = $storage->{db};
 
-   foreach my $classdef (values %{ $Springfield::schema->{classes} })
-   {
+	foreach my $classdef (values %{ $schema->{classes} }) {
       $conn->do("DELETE FROM $classdef->{table}") or die
-			unless $classdef->{stateless};
-   }
+		unless $classdef->{stateless};
+	}
+  }
 
-   return $storage;
-}
+sub connect_empty
+  {
+	my $schema = shift || $Springfield::schema;
+	my $storage = Springfield::connect($schema);
+	empty($storage, $schema);
+	return $storage;
+  }
 
 use vars qw( $test );
 
@@ -313,6 +322,16 @@ sub optional_tests
 
 	return $proceed;
 }
+
+sub tests_for_dialect
+  {
+	my ($dialect) = @_;
+	return if (split ':', $cs)[1] eq $dialect;
+
+	begin_tests(1);
+	optional_tests($dialect, 0, 1);
+	exit;
+  }
 
 #use Data::Dumper;
 #print Dumper $schema;

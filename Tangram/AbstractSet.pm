@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use strict;
 
 use Tangram::Coll;
@@ -8,33 +10,46 @@ use base qw( Tangram::Coll );
 
 use Carp;
 
-sub save
-{
-	my ($self, $cols, $vals, $obj, $members, $storage, $table, $id) = @_;
-
-	foreach my $coll (keys %$members)
-	{
-		next if tied $obj->{$coll};
-		next unless defined $obj->{$coll};
-
-		my $class = $members->{$coll}{class};
-
-		foreach my $item ($obj->{$coll}->members)
-		{
-			Tangram::Coll::bad_type($obj, $coll, $class, $item)
-					if $^W && !$item->isa($class);
-			if ($members->{$coll}->{deep_update}) {
-				$storage->_save($item);
-			} else {
-				$storage->insert($item)	unless $storage->id($item);
-		        }
+sub get_exporter
+  {
+	my ($self, $context) = @_;
+	my $field = $self->{name};
+	
+	return $self->{deep_update} ?
+	  sub {
+		my ($obj, $context) = @_;
+		
+		# has collection been loaded? if not, then it hasn't been modified
+		return if tied $obj->{$field};
+		
+		my $storage = $context->{storage};
+		
+		foreach my $item ($obj->{$field}->members) {
+		  $storage->_save($item, $context->{SAVING});
 		}
+		
+		$storage->defer(sub { $self->defered_save(shift, $obj, $field, $self) } );
+		
+		return ();
+	  }
+	: sub {
+	  my ($obj, $context) = @_;
+	  
+	  # has collection been loaded? if not, then it hasn't been modified
+	  return if tied $obj->{$field};
+	  
+	  my $storage = $context->{storage};
+	  
+	  foreach my $item ($obj->{$field}->members) {
+		$storage->insert($item)
+		  unless $storage->id($item);
+	  }
+	  
+	  $storage->defer(sub { $self->defered_save(shift, $obj, $field, $self) } );
+	  
+	  return ();
 	}
-
-	$storage->defer(sub { $self->defered_save(shift, $obj, $members, $id) } );
-
-	return ();
-}
+  }
 
 sub update
 {
@@ -53,7 +68,7 @@ sub update
       
 		unless (exists $old_state->{$item_id})
 		{
-			&$insert($item_id);
+			$insert->($storage->{export_id}->($item_id));
 		}
 
 		$new_state{$item_id} = 1;
@@ -62,7 +77,7 @@ sub update
 	foreach my $del (keys %$old_state)
 	{
 		next if $new_state{$del};
-		&$remove($del);
+		$remove->($storage->{export_id}->($del));
 	}
 
 	$old_states->{$member} = \%new_state;

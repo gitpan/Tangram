@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 # not implemented yet
 
 __END__
@@ -118,8 +120,8 @@ sub cursor
    my $slot_col = $def->{slot};
 
    my $coll_id = $storage->id($obj);
-   my $tid = $cursor->{-stored}->leaf_table;
-   $cursor->{-coll_cols} = ", t$tid.$slot_col";
+   my $tid = $cursor->{-stored}->{table_hash}{$def->{class}}; # ->leaf_table;
+   $cursor->{-coll_cols} = "t$tid.$slot_col";
    $cursor->{-coll_where} = "t$tid.$item_col = $coll_id";
 
    return $cursor;
@@ -129,6 +131,12 @@ sub query_expr
 {
    my ($self, $obj, $members, $tid) = @_;
    map { Tangram::IntrCollExpr->new($obj, $_); } values %$members;
+}
+
+sub remote_expr
+{
+   my ($self, $obj, $tid) = @_;
+   Tangram::IntrCollExpr->new($obj, $self);
 }
 
 sub prefetch

@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use strict;
 
 package Tangram::Type;
@@ -25,6 +27,10 @@ sub members
 }
 
 sub query_expr
+{
+}
+
+sub remote_expr
 {
 }
 
@@ -56,5 +62,28 @@ sub expr
 {
 	return Tangram::Expr->new( @_ );
 }
+
+sub get_exporters
+  {
+	my ($self, $fields, $context) = @_;
+	return map { $fields->{$_}->get_exporter($context) } keys %$fields;
+  }
+
+sub get_importer
+  {
+	my $type = ref shift();
+	die "$type does not implement new get_importer method";
+  }
+
+sub get_exporter
+  {
+	my $type = ref shift();
+	die "$type does not implement new get_exporter method";
+  }
+
+sub get_export_cols
+  {
+	()
+  }
 
 1;

@@ -1,3 +1,13 @@
+# (c) Sound Object Logic 2000-2001
+
+# Copyright 1999-2001 Gabor Herr. All rights reserved.
+# This program is free software; you can redistribute it and/or modify it
+# under the same terms as Perl itself
+
+# Modified 29dec2000 by Jean-Louis Leroy
+# replaced save() by get_exporter()
+# fixed reschema(): $def->{dumper} was not set when using abbreviated forms
+
 use strict;
 
 use Tangram::Scalar;
@@ -12,14 +22,12 @@ $Tangram::Schema::TYPES{perl_dump} = Tangram::PerlDump->new;
 my $DumpMeth = (defined &Data::Dumper::Dumpxs) ? 'Dumpxs' : 'Dump';
 
 sub reschema {
-  my ($self, $members, $class) = @_;
+  my ($self, $members, $class, $schema) = @_;
 
   if (ref($members) eq 'ARRAY') {
     # short form
     # transform into hash: { fieldname => { col => fieldname }, ... }
-    $_[1] = map { $_ => { col => $_ } } @$members;
-    return @$members;
-    die 'coverok';
+    $_[1] = map { $_ => { col => $schema->{normalize}->($_, 'colname') } } @$members;
   }
     
   for my $field (keys %$members) {
@@ -28,19 +36,19 @@ sub reschema {
     
     unless ($refdef) {
       # not a reference: field => field
-      $members->{$field} = { col => $def || $field };
-      next;
+      $def = $members->{$field} = { col => $schema->{normalize}->(($def || $field), 'colname') };
+	  $refdef = ref($def);
     }
 
     die ref($self), ": $class\:\:$field: unexpected $refdef"
       unless $refdef eq 'HASH';
 	
-    $def->{col} ||= $field;
+    $def->{col} ||= $schema->normalize->($field, 'colname');
     $def->{sql} ||= 'VARCHAR(255)';
     $def->{indent} ||= 0;
     $def->{terse} ||= 1;
     $def->{purity} ||= 0;
-    $def->{dumper} = sub {
+    $def->{dumper} ||= sub {
       $Data::Dumper::Indent = $def->{indent};
       $Data::Dumper::Terse  = $def->{terse};
       $Data::Dumper::Purity = $def->{purity};
@@ -52,19 +60,22 @@ sub reschema {
   return keys %$members;
 }
 
-sub read
+sub get_importer
 {
-    my ($self, $row, $obj, $members) = @_;
-    @$obj{keys %$members} =
-      map
-	{
-	  my $v = eval($_);
-	  die "Error in undumping perl object \'$v\': $@" if ($@);
-	  $_ = $v;
-	}
-        splice @$row, 0, keys %$members;
-}
+	my ($self, $context) = @_;
+	return "\$obj->{$self->{name}} = eval shift \@\$row";
+  }
 
+sub get_exporter
+  {
+	my ($self, $context) = @_;
+	my $field = $self->{name};
+
+	return sub {
+	  my ($obj, $context) = @_;
+	  $self->{dumper}->($obj->{$field});
+	};
+  }
 
 sub save {
   my ($self, $cols, $vals, $obj, $members, $storage) = @_;

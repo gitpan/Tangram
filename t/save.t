@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use t::Springfield;
 
 my %id;
@@ -88,5 +90,17 @@ Springfield::begin_tests(3);
 	$storage->disconnect();
 }
 
+#{
+#	$storage = Springfield::connect_empty;
+
+#	my $bart = NaturalPerson->new( firstName => 'Bart' );
+
+#	$id{Bart} = $storage->insert($bart);
+#	Springfield::empty($storage);
+#	eval { $storage->update($bart) };
+#	Springfield::test($@);
+
+#	$storage->disconnect();
+#}
 
 #Springfield::leaktest;

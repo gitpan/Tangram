@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use strict;
 
 package Tangram::ClassHash;
@@ -18,8 +20,44 @@ sub members
    return @{$self->{$type}};
 }
 
-package Tangram::Schema;
+sub direct_bases
+  {
+	@{ shift->{BASES} }
+  }
 
+sub is_root
+  {
+	!@{ shift->{BASES} }
+  }
+
+sub direct_fields
+  {
+	map { values %$_ } values %{ shift->{fields} }
+  }
+
+sub for_conforming
+{
+   my ($class, $fun) = @_;
+   my $done = Set::Object->new;
+
+   my $traverse;
+
+   $traverse = sub {
+	 my $class = shift;
+	 return if $done->includes($class);
+	 $done->insert($class);
+	 $fun->($class);
+
+	 foreach my $derived (@{ $class->{SPECS} }) {
+	   $traverse->($derived);
+	 }
+   };
+
+   $traverse->($class);
+ }
+
+package Tangram::Schema;
+#use base qw( SelfLoader );
 use Carp;
 
 use vars qw( %TYPES );
@@ -38,28 +76,46 @@ sub new
     bless $self, $pkg;
 
     $self->{make_object} ||= sub { shift()->new() };
+
+    $self->{normalize} ||= sub { shift() };
     $self->{class_table} ||= 'OpalClass';
 
+	$self->{control} ||= 'Tangram';
+
 	$self->{sql}{default_null} = 'NULL' unless exists $self->{sql}{default_null};
-	$self->{sql}{id} ||= 'NUMERIC(15,0)';
-	$self->{sql}{cid} ||= 'NUMERIC(5,0)';
-	$self->{sql}{oid} ||= 'NUMERIC(10,0)';
+	$self->{sql}{id_col} ||= 'id';
+	$self->{sql}{id} ||= 'INTEGER';
+	# commented out because of layout1 compatibility $self->{sql}{class_col} ||= 'type';
+	$self->{sql}{cid} ||= 'INTEGER';
+	$self->{sql}{oid} ||= 'INTEGER';
 	$self->{sql}{cid_size} ||= 4;
 
     my $types = $self->{types} ||= {};
 
     %$types = ( %TYPES, %$types );
 
-    my $classes = $self->{'classes'};
-    bless $classes, 'Tangram::ClassHash';
+	my @class_list = ref($self->{'classes'}) eq 'HASH' ? %{ $self->{'classes'} } : @{ $self->{'classes'} };
+    my $class_hash = $self->{'classes'} = {};
 
-    while (my ($class, $def) = each %$classes)
+    bless $class_hash, 'Tangram::ClassHash';
+
+    my $autoid = 0;
+
+    while (my ($class, $def) = splice @class_list, 0, 2)
     {
-		my $classdef = $classes->{$class};
+		my $classdef = $class_hash->{$class} ||= {};
+		%$classdef = (%$def, %$classdef);
+
+		if (exists $classdef->{id}) {
+		  $autoid = $classdef->{id};
+		} else {
+		  $classdef->{id} = ++$autoid;
+		}
 
 		bless $classdef, 'Tangram::Class';
 
-		$classdef->{table} ||= $class;
+		$classdef->{name} = $class;
+		$classdef->{table} ||= $self->{normalize}->($class, 'tablename');
 
 		$classdef->{fields} ||= $classdef->{members};
 		$classdef->{members} = $classdef->{fields};
@@ -83,12 +139,16 @@ sub new
 			my @members = $types->{$typetag}->reschema($memdefs, $class, $self)
 				if $memdefs;
 
+			for my $field (keys %$memdefs) {
+			  $memdefs->{$field}{name} = $field;
+			  my $fielddef = bless $memdefs->{$field}, ref $type;
+			  my @cols = $fielddef->get_export_cols( {} );
+			  $cols += @cols;
+			}
+
 			@{$classdef->{member_type}}{@members} = ($type) x @members;
 	    
 			@{$classdef->{MEMDEFS}}{keys %$memdefs} = values %$memdefs;
-	    
-			local $^W = undef;
-			$cols += scalar($type->cols($memdefs));
 		}
 
 		$classdef->{stateless} = !$cols
@@ -96,25 +156,39 @@ sub new
 
 		foreach my $base (@{$classdef->{bases}})
 		{
-			push @{$classes->{$base}{specs}}, $class;
+			push @{$class_hash->{$base}{specs}}, $class;
 		}
     }
 
-    while (my ($class, $classdef) = each %$classes)
+    while (my ($class, $classdef) = each %$class_hash)
     {
 		my $root = $class;
 	
-		while (@{$classes->{$root}{bases}})
+		while (@{$class_hash->{$root}{bases}})
 		{
-			$root = @{$classes->{$root}{bases}}[0];
+			$root = @{$class_hash->{$root}{bases}}[0];
 		}
 
-		$classdef->{root} = $classes->{$root};
+		$classdef->{root} = $class_hash->{$root};
 		delete $classdef->{stateless} if $root eq $class;
+
+		$classdef->{BASES} = [ map { $class_hash->{$_} } @{ $classdef->{bases} } ];
+		$classdef->{SPECS} = [ map { $class_hash->{$_} } @{ $classdef->{specs} } ];
+		
+		if (0) { # currently causes 'panic: magic_killbackrefs, <CONFIG> line 1 during global destruction.'
+		  for my $ref (@{ $classdef->{SPECS} }) {
+			Tangram::weaken $ref;
+		  }
+		}
     }
 
     return $self;
 }
+
+sub all_classes
+  {
+	return values %{ shift->{classes} };
+  }
 
 sub check_class
 {
@@ -252,6 +326,31 @@ sub _visit_down
    @results
 }
 
+sub for_bases
+{
+   my ($self, $class, $fun) = @_;
+   my %done;
+   my $classes = $self->{classes};
+
+   my $traverse;
+
+   $traverse = sub {
+	 my $class = shift;
+	 return if $done{$class}++;
+	 my $def = $classes->{$class};
+
+	 foreach my $base (@{ $def->{bases} }) {
+	   $traverse->($base);
+	 }
+
+	 $fun->($def);
+   };
+
+   foreach my $base (@{ $classes->{$class}{bases} }) {
+	 $traverse->($base);
+   }
+ }
+
 sub for_each_spec
 {
    my ($self, $class, $fun) = @_;
@@ -304,4 +403,10 @@ sub is_persistent
    return $self->{classes}{$class} && $self->{classes}{$class};
 }
 
+#use SelfLoader;
+#sub DESTROY { }
+
 1;
+
+1;
+

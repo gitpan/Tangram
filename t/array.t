@@ -1,9 +1,11 @@
+# (c) Sound Object Logic 2000-2001
+
 use strict;
 use t::Springfield;
 
 use vars qw( $intrusive );
 
-my $children = $intrusive ? 'ia_children' : 'a_children';
+my $children = $intrusive ? 'ia_children' : 'children';
 
 my %id;
 my @kids = qw( Bart Lisa Maggie );
@@ -13,7 +15,7 @@ my @kids = qw( Bart Lisa Maggie );
 sub NaturalPerson::children
 {
 	my ($self) = @_;
-	join(' ', map { $_->{firstName} } @{ $self->{$children} } )
+	join(' ', map { $_->{firstName} || '' } @{ $self->{$children} } )
 }
 
 sub marge_test

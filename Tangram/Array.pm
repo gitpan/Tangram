@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use strict;
 
 package Tangram::Array;
@@ -9,7 +11,7 @@ use Carp;
 
 sub reschema
 {
-	my ($self, $members) = @_;
+	my ($self, $members, $class, $schema) = @_;
 
 	foreach my $member (keys %$members)
 	{
@@ -21,10 +23,10 @@ sub reschema
 			$members->{$member} = $def;
 		}
 
-		$def->{table} ||= $def->{class} . "_$member";
-		$def->{coll} ||= 'coll';
-		$def->{item} ||= 'item';
-		$def->{slot} ||= 'slot';
+		$def->{table} ||= $schema->{normalize}->($def->{class} . "_$member", 'tablename');
+		$def->{coll}  ||= 'coll';
+		$def->{item}  ||= 'item';
+		$def->{slot}  ||= 'slot';
 	}
    
 	return keys %$members;
@@ -37,31 +39,32 @@ sub get_save_closures
 	my ($table, $cc, $ic, $sc) = @{ $def }{ qw( table coll item slot ) };
 
 	my $ne = sub { shift() != shift() };
+	my $eid = $storage->{export_id}->($id);
 
 	my $modify = sub
 	{
 		my ($slot, $item) = @_;
 
-		my $item_id = $storage->id($item)
+		my $item_id = $storage->export_object($item)
 			|| croak "element at $slot has no id";
          
 		$storage->sql_do(
-            "UPDATE $table SET $ic = $item_id WHERE $cc = $id AND $sc = $slot");
+            "UPDATE $table SET $ic = $item_id WHERE $cc = $eid AND $sc = $slot");
 	};
 
 	my $add = sub
 	{
 		my ($slot, $item) = @_;
-		my $item_id = $storage->id($item);
+		my $item_id = $storage->export_object($item);
 		$storage->sql_do(
-		    "INSERT INTO $table ($cc, $ic, $sc) VALUES ($id, $item_id, $slot)");
+		    "INSERT INTO $table ($cc, $ic, $sc) VALUES ($eid, $item_id, $slot)");
 	};
 
 	my $remove = sub
 	{
 		my ($new_size) = @_;
 		$storage->sql_do(
-            "DELETE FROM $table WHERE $cc = $id AND $sc >= $new_size");
+            "DELETE FROM $table WHERE $cc = $eid AND $sc >= $new_size");
 	};
 
 	return ($ne, $modify, $add, $remove);
@@ -70,6 +73,8 @@ sub get_save_closures
 sub erase
 {
 	my ($self, $storage, $obj, $members, $coll_id) = @_;
+
+	$coll_id = $storage->{export_id}->($coll_id);
 
 	foreach my $member (keys %$members)
 	{
@@ -99,19 +104,25 @@ sub cursor
 
 	my $cursor = Tangram::CollCursor->new($storage, $def->{class}, $storage->{db});
 
-	my $coll_id = $storage->id($obj);
+	my $coll_id = $storage->export_object($obj);
 	my $coll_tid = $storage->alloc_table;
 	my $table = $def->{table};
-	my $item_tid = $cursor->{-stored}->root_table;
+	my $item_tid = $cursor->{TARGET}->object->root_table;
 	my $coll_col = $def->{coll};
 	my $item_col = $def->{item};
 	my $slot_col = $def->{slot};
 	$cursor->{-coll_tid} = $coll_tid;
-	$cursor->{-coll_cols} = ", t$coll_tid.$slot_col";
-	$cursor->{-coll_from} = ", $table t$coll_tid";
+	$cursor->{-coll_cols} = "t$coll_tid.$slot_col";
+	$cursor->{-coll_from} = "$table t$coll_tid";
 	$cursor->{-coll_where} = "t$coll_tid.$coll_col = $coll_id AND t$coll_tid.$item_col = t$item_tid.id";
    
 	return $cursor;
+}
+
+sub remote_expr
+{
+	my ($self, $obj, $tid) = @_;
+	Tangram::CollExpr->new($obj, $self);
 }
 
 sub query_expr
@@ -163,56 +174,3 @@ sub prefetch
 $Tangram::Schema::TYPES{array} = Tangram::Array->new;
 
 1;
-
-__END__
-
-
-sub defered_save
-{
-	use integer;
-
-	my ($self, $storage, $obj, $members, $coll_id) = @_;
-
-	foreach my $member (keys %$members)
-	{
-		next if tied $obj->{$member}; # collection has not been loaded, thus not modified
-		
-		my $def = $members->{$member};
-		my ($table, $coll_col, $item_col, $slot_col) = @{ $def }{ qw( table coll item slot ) };
-		my $id = $storage->id($obj);
-
-		my $new_state = $obj->{$member} || [];
-		my $new_size = @$new_state;
-
-		my $old_state = $self->get_load_state($storage, $obj, $member) || [];
-		my $old_size = @$old_state;
-
-		my ($common, $changed) = Tangram::Coll::array_diff($new_state, $old_state);
-            
-		for my $slot (@$changed)
-		{
-			my $item_id = $storage->id($new_state->[$slot])
-				|| croak "member $new_state->[$slot] has no id";
-         
-			$storage->sql_do(
-			    "UPDATE $table SET $item_col = $item_id WHERE $coll_col = $id AND $slot_col = $slot");
-		}
-
-		if ($old_size > $new_size)
-		{
-			$storage->sql_do(
-                "DELETE FROM $table WHERE $coll_col = $id AND $slot_col >= $new_size");
-		}
-
-		for my $slot ($old_size .. ($new_size-1))
-		{
-			my $item_id = $storage->id($new_state->[$slot]);
-			$storage->sql_do(
-			    "INSERT INTO $table ($coll_col, $item_col, $slot_col) VALUES ($id, $item_id, $slot)");
-		}
-
-		$self->set_load_state($storage, $obj, $member, [ @$new_state ] );	
-		$storage->tx_on_rollback(
-            sub { $self->set_load_state($storage, $obj, $member, $old_state) } );
-	}
-}

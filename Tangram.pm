@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 package Tangram;
 
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
@@ -11,7 +13,7 @@ require Exporter;
 @EXPORT = qw(
 	
 );
-$VERSION = '1.18';
+$VERSION = '2.04';
 
 
 # Preloaded methods go here.
@@ -25,6 +27,12 @@ use Tangram::Array;
 use Tangram::IntrArray;
 
 use Tangram::Hash;
+
+sub connect
+  {
+	shift;
+	Tangram::Storage->connect( @_ );
+  }
 
 1;
 

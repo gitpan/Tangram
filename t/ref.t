@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use t::Springfield;
 
 my %id;
@@ -88,7 +90,9 @@ Springfield::leaktest;
 {
 	$storage = Springfield::connect();
 
-	$storage->erase( $storage->load( $ids{Homer} ) );
+	my $homer = $storage->load( $ids{Homer} );
+	print $homer->{credit}, "\n";
+	$storage->erase( $homer );
 
 	my @credits = $storage->select('Credit');
 	Springfield::test( @credits == 0 );

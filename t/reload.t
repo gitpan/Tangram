@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 use strict;
 use lib 't';
 use Springfield;
@@ -20,19 +22,14 @@ Springfield::leaktest;
 
 	testcase($marge->{name} eq 'Bouvier');
 
-	{
-		my $storage = Springfield::connect;
-		my ($marge) = $storage->select('NaturalPerson');
-		$marge->{name} = 'Simpson';
-		$marge->{a_children} = [ NaturalPerson->new( firstName => 'Bart', name => 'Simpson' ) ];
-		$storage->update($marge);
-		$storage->disconnect;
-	}
+	$marge->{name} = 'Simpson';
+	$marge->{children} = [ NaturalPerson->new( firstName => 'Bart', name => 'Simpson' ) ];
+	$storage->update($marge);
 
 	$storage->reload($marge);
 
 	testcase($marge->{name} eq 'Simpson');
-	testcase(@{ $marge->{a_children} } == 1);
+	testcase(@{ $marge->{children} } == 1);
 
 	$storage->disconnect;
 }

@@ -1,3 +1,5 @@
+# (c) Sound Object Logic 2000-2001
+
 package Tangram::DMDateTime;
 
 use strict;
@@ -14,12 +16,17 @@ $Tangram::Schema::TYPES{dmdatetime} = Tangram::DMDateTime->new;
 # save is not needed, because most DBMs can directly interpret Date::Manip
 # format. 
 #
-sub read
+sub get_importer
 {
-    my ($self, $row, $obj, $members) = @_;
-    @$obj{keys %$members} =
-      map { s/[-: ]//g; $_; }
-        splice @$row, 0, keys %$members;
+  my ($self) = @_;
+  my $name = $self->{name};
+
+  return sub {
+	my ($obj, $row, $context) = @_;
+	my $val = shift @$row;
+	$val =~ s/[-: ]//g;
+	$obj{$name} = $val;
+  }
 }
 
 1;
