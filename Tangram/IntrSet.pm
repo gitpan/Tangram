@@ -6,7 +6,8 @@ use Tangram::AbstractSet;
 
 package Tangram::IntrSet;
 
-use base qw( Tangram::AbstractSet );
+use vars qw(@ISA);
+ @ISA = qw( Tangram::AbstractSet );
 
 use Carp;
 
@@ -24,7 +25,7 @@ sub reschema
 			$members->{$member} = $def;
 		}
 
-		$def->{coll} ||= $class . "_$member";
+		$def->{coll} ||= $schema->{normalize}->($class) . "_$member";
 
 		$schema->{classes}{$def->{class}}{stateless} = 0;
 
@@ -162,6 +163,11 @@ sub prefetch
 	}
 
 	return $prefetch;
+}
+
+sub get_intrusions {
+  my ($self, $context) = @_;
+  return [ $self->{class}, $context->{mapping}->get_home_table($self->{class}) ];
 }
 
 $Tangram::Schema::TYPES{iset} = Tangram::IntrSet->new;

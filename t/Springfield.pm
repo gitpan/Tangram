@@ -5,20 +5,48 @@ use Tangram;
 use Tangram::RawDate;
 use Tangram::RawTime;
 use Tangram::RawDateTime;
+use Tangram::DMDateTime;
 
 use Tangram::FlatArray;
 use Tangram::FlatHash;
 use Tangram::PerlDump;
 
 package Springfield;
-
-use vars qw( $schema @ISA @EXPORT );
-
-require Exporter;
+use Exporter;
+use vars qw(@ISA @EXPORT @EXPORT_OK);
 @ISA = qw( Exporter );
-@EXPORT = qw( &optional_tests $schema testcase &leaktest &test &begin_tests &tests_for_dialect $dialect );
 
-$schema = Tangram::Schema->new( {
+@EXPORT = qw( &optional_tests $schema testcase &leaktest &leaked &test &begin_tests &tests_for_dialect $dialect $cs $user $passwd );
+@EXPORT_OK = @EXPORT;
+
+use vars qw($cs $user $passwd $dialect $vendor $schema);
+
+{
+  local $/;
+  
+  my $config = $ENV{TANGRAM_CONFIG} || 'CONFIG';
+  
+  open CONFIG, $config
+	or open CONFIG, "t/$config"
+	  or open CONFIG, "../t/$config"
+		or die "Cannot open t/$config, reason: $!";
+  
+  ($cs, $user, $passwd) = split "\n", <CONFIG>;
+  
+  $vendor = (split ':', $cs)[1];;
+  $dialect = "Tangram::$vendor";  # deduce dialect from DBI driver
+  eval "use $dialect";
+  $dialect = 'Tangram::Relational' if $@;
+}
+
+sub list_if {
+  shift() ? @_ : ()
+}
+
+use vars qw($no_tx);
+
+$schema = Tangram::Schema->new
+    ( {
 
    #set_id => sub { my ($obj, $id) = @_; $obj->{id} = $id },
    #get_id => sub { shift()->{id} },
@@ -39,8 +67,6 @@ $schema = Tangram::Schema->new( {
 
       NaturalPerson =>
       {
-	   table => 'NP',
-
 	   bases => [ qw( Person ) ],
 
 	   fields =>
@@ -59,9 +85,12 @@ $schema = Tangram::Schema->new( {
 		 credit => { aggreg => 1 },
 		},
 
-		#rawdate => [ qw( birthDate ) ],
-		#rawtime => [ qw( birthTime ) ],
-		#rawdatetime => [ qw( birth ) ],
+		list_if( $vendor ne 'Sybase',
+				 rawdate => [ qw( birthDate ) ],
+				 rawtime => [ qw( birthTime ) ],
+				 rawdatetime => [ qw( birth ) ],
+				 dmdatetime => [ qw( incarnation ) ]
+			   ),
 
 		array =>
 		{
@@ -79,14 +108,14 @@ $schema = Tangram::Schema->new( {
 		 }
 		},
 
-# 		hash =>
-# 		{
-# 		 h_opinions =>
-# 		 {
-# 		  class => 'Opinion',
-# 		  table => 'h_opinions',
-# 		 }
-# 		},
+		hash =>
+		{
+		 h_opinions =>
+		 {
+		  class => 'Opinion',
+		  table => 'h_opinions',
+		 }
+		},
 
 		iarray =>
 		{
@@ -202,33 +231,22 @@ $schema = Tangram::Schema->new( {
 	 }
 	},
 
-   ] } );
-
-use vars qw( $cs $user $passwd $dialect );
-
-{
-  local $/;
-  
-  my $config = $ENV{TANGRAM_CONFIG} || 'CONFIG';
-  
-  open CONFIG, $config
-	or open CONFIG, "t/$config"
-	  or open CONFIG, "../t/$config"
-		or die "Cannot open t/$config, reason: $!";
-  
-  ($cs, $user, $passwd) = split "\n", <CONFIG>;
-  
-  $dialect = 'Tangram::' . (split ':', $cs)[1]; # deduce dialect from DBI driver
-  eval "use $dialect";
-  $dialect = 'Tangram::Relational' if $@;
-}
-
-my $no_tx;
+   ],
+	($ENV{"NORMALIZE_TEST"} ?
+       (normalize => sub {
+	   local($_)=shift;
+	   s/NaturalPerson/NP/;
+	   s/$/_n/;
+	   return $_;
+       }) : ()),
+      } );
 
 sub connect
   {
 	my $schema = shift || $Springfield::schema;
-	my $storage = $dialect->connect($schema, $cs, $user, $passwd) || die;
+	my $opts = {};
+	$opts->{no_tx} = 1 if $cs =~ /^dbi:mysql:/;
+	my $storage = $dialect->connect($schema, $cs, $user, $passwd, $opts) || die;
 	$no_tx = $storage->{no_tx};
 	return $storage;
   }
@@ -240,9 +258,12 @@ sub empty
 	my $conn = $storage->{db};
 
 	foreach my $classdef (values %{ $schema->{classes} }) {
-      $conn->do("DELETE FROM $classdef->{table}") or die
+	    $conn->do("DELETE FROM $classdef->{table}") or die
 		unless $classdef->{stateless};
 	}
+
+	$conn->do('DELETE FROM a_children');
+	$conn->do('DELETE FROM s_children');
   }
 
 sub connect_empty
@@ -292,6 +313,11 @@ sub leaktest
    ++$test;
 }
 
+sub leaked
+{
+   return $SpringfieldObject::pop;
+}
+
 sub tx_tests
 {
 	my ($tests, $code) = @_;
@@ -323,10 +349,10 @@ sub optional_tests
 	return $proceed;
 }
 
-sub tests_for_dialect
-  {
-	my ($dialect) = @_;
-	return if (split ':', $cs)[1] eq $dialect;
+sub tests_for_dialect {
+	my %dialect;
+	@dialect{@_} = ();
+	return if exists $dialect{ (split ':', $cs)[1] };
 
 	begin_tests(1);
 	optional_tests($dialect, 0, 1);
@@ -360,10 +386,8 @@ sub DESTROY
 }
 
 package Person;
-
-use vars qw( @ISA );
-
-@ISA = 'SpringfieldObject';
+use vars qw(@ISA);
+@ISA = qw( SpringfieldObject );
 
 sub as_string
 {
@@ -373,10 +397,8 @@ sub as_string
 #use overload '""' => sub { shift->as_string }, fallback => 1;
 
 package NaturalPerson;
-
-use vars qw( @ISA );
-
-@ISA = 'Person';
+use vars qw(@ISA);
+@ISA = qw( Person );
 
 sub defaults
 {
@@ -395,8 +417,7 @@ sub as_string
 
 package LegalPerson;
 
-use vars qw( @ISA );
-
+use vars qw(@ISA);
 @ISA = 'Person';
 
 sub as_string
@@ -405,18 +426,19 @@ sub as_string
 }
 
 package NuclearPlant;
-
-use vars qw( @ISA );
-
-@ISA = 'LegalPerson';
+use vars qw(@ISA);
+@ISA = qw( LegalPerson );
 
 package Opinion;
-use base qw( SpringfieldObject );
+use vars qw(@ISA);
+@ISA = qw( SpringfieldObject );
 
 package Credit;
-use base qw( SpringfieldObject );
+use vars qw(@ISA);
+@ISA = qw( SpringfieldObject );
 
 package Item;
-use base qw( SpringfieldObject );
+use vars qw(@ISA);
+@ISA = qw( SpringfieldObject );
 
 1;

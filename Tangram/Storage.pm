@@ -112,7 +112,7 @@ sub _open
 	  my $address = 0 + shift();
 	  my $id = $self->{ids}{$address};
 	  return undef unless $id;
-	  return $id if $self->{objects}{$id};
+	  return $id if exists $self->{objects}{$id};
 	  delete $self->{ids}{$address};
 	  delete $self->{objects}{$id};
 	  return undef;
@@ -468,28 +468,28 @@ sub _insert
 
 	my $dbh = $self->{db};
 	my $engine = $self->{engine};
-	my $cache = $engine->get_save_cache($class);
 
 	my $sths = $self->{INSERT_STHS}{$class_name} ||=
-	  [ map { $self->prepare($_) } @{ $cache->{INSERTS} } ];
+	  [ map { $self->prepare($_) } $engine->get_insert_statements($class) ];
 
 	my $context = { storage => $self, dbh => $dbh, id => $id, SAVING => $saving };
-	my @state = ( $self->{export_id}->($id), $classId, $cache->{EXPORTER}->($obj, $context) );
+	my @state = ( $self->{export_id}->($id), $classId, $class->get_exporter({layout1 => $self->{layout1} })->($obj, $context) );
 
-	my $fields = $cache->{INSERT_FIELDS};
+	my @fields = $engine->get_insert_fields($class);
 
 	use integer;
 
 	for my $i (0..$#$sths) {
 
 	  if ($Tangram::TRACE) {
+		my @sql = $engine->get_insert_statements($class);
 		printf $Tangram::TRACE "executing %s with (%s)\n",
-		$cache->{INSERTS}[$i],
-		join(', ', map { $_ || 'NULL' } @state[ @{ $fields->[$i] } ] )
+		$sql[$i],
+		join(', ', map { $_ || 'NULL' } @state[ @{ $fields[$i] } ] )
 	  }
 
 	  my $sth = $sths->[$i];
-	  $sth->execute(@state[ @{ $fields->[$i] } ]);
+	  $sth->execute(@state[ @{ $fields[$i] } ]);
 	  $sth->finish();
 	}
 
@@ -530,32 +530,32 @@ sub _update
     $saving->insert($obj);
 
     my $class = $self->{schema}->classdef(ref $obj);
+	my $engine = $self->{engine};
 	my $dbh = $self->{db};
 	my $context = { storage => $self, dbh => $dbh, id => $id, SAVING => $saving };
 
-	my $cache = $self->{engine}->get_save_cache($class);
-	my @state = ( $self->{export_id}->($id), substr($id, -$self->{cid_size}), $cache->{EXPORTER}->($obj, $context) );
-
-	my $fields = $cache->{UPDATE_FIELDS};
+	my @state = ( $self->{export_id}->($id), substr($id, -$self->{cid_size}), $class->get_exporter({ layout1 => $self->{layout1} })->($obj, $context) );
+	my @fields = $engine->get_update_fields($class);
 
 	my $sths = $self->{UPDATE_STHS}{$class->{name}} ||=
 	  [ map {
 		print $Tangram::TRACE "preparing $_\n" if $Tangram::TRACE;
 		$self->prepare($_)
-	  } @{ $cache->{UPDATES} } ];
+	  } $engine->get_update_statements($class) ];
 
 	use integer;
 
 	for my $i (0..$#$sths) {
 
 	  if ($Tangram::TRACE) {
+		my @sql = $engine->get_update_statements($class);
 		printf $Tangram::TRACE "executing %s with (%s)\n",
-		$cache->{UPDATES}[$i],
-		join(', ', map { $_ || 'NULL' } @state[ @{ $fields->[$i] } ] )
+		$sql[$i],
+		join(', ', map { $_ || 'NULL' } @state[ @{ $fields[$i] } ] )
 	  }
 
 	  my $sth = $sths->[$i];
-	  $sth->execute(@state[ @{ $fields->[$i] } ]);
+	  $sth->execute(@state[ @{ $fields[$i] } ]);
 	  $sth->finish();
 	}
   }
@@ -623,7 +623,7 @@ sub erase
 					   } );
 
 			   my $sths = $self->{DELETE_STHS}{$class->{name}} ||=
-				 [ map { $self->prepare($_) } @{ $self->{engine}->get_deletes($class) } ];
+				 [ map { $self->prepare($_) } $self->{engine}->get_deletes($class) ];
 		   
 		       my $eid = $self->{export_id}->($id);
 
@@ -749,8 +749,8 @@ sub read_object
 sub _row_to_object
   {
     my ($self, $obj, $id, $class, $row) = @_;
-	$self->{engine}->get_import_cache($self->{schema}->classdef($class))
-	  ->($obj, $row, { storage => $self, id => $id, layout1 => $self->{layout1} });
+	my $context = { storage => $self, id => $id, layout1 => $self->{layout1} };
+	$self->{schema}->classdef($class)->get_importer($context)->($obj, $row, $context);
 	return $obj;
 }
 
@@ -903,13 +903,16 @@ sub sum
 
 sub id
 {
-    my ($self, $obj) = @_;
-    return $self->{get_id}->($obj);
+    my $self = shift;
+	return map { $self->{get_id}->($_) } @_ if wantarray;
+    $self->{get_id}->(shift());
 }
 
 sub disconnect
 {
     my ($self) = @_;
+
+    return unless defined $self->{db};
 
     unless ($self->{no_tx})
     {   
@@ -989,10 +992,13 @@ sub connect
 	$opts ||= {};
 
     my $db = $opts->{dbh} || DBI->connect($cs, $user, $pw);
-
-    eval { $db->{AutoCommit} = 0 };
-
-    $self->{no_tx} = $db->{AutoCommit};
+ 
+	if ($opts->{no_tx}) {
+	  $self->{no_tx} = 1;
+	} else {
+	  eval { $db->{AutoCommit} = 0 };
+	  $self->{no_tx} = $db->{AutoCommit};
+	}
 
     $self->{db} = $db;
 
@@ -1006,6 +1012,8 @@ sub connect
 
     return $self;
 }
+
+sub connection { shift->{db} }
 
 sub sql_do
 {

@@ -6,7 +6,8 @@ use Tangram::Coll;
 
 package Tangram::AbstractArray;
 
-use base qw( Tangram::Coll );
+use vars qw(@ISA);
+ @ISA = qw( Tangram::Coll );
 
 use Carp;
 
@@ -33,7 +34,7 @@ sub demand
 		}
 	}
 
-	$storage->{scratch}{ref($self)}{$storage->id($obj)}{$member} = [ map { $_ && $storage->id($_) } @coll ];
+	$self->set_load_state($storage, $obj, $member, [ map { $_ && $storage->id($_) } @coll ]);
 
 	return \@coll;
 }

@@ -210,7 +210,8 @@ sub expr_hash
 
 package Tangram::RDBObject;
 
-use base qw( Tangram::CursorObject );
+use vars qw(@ISA);
+ @ISA = qw( Tangram::CursorObject );
 
 sub where
 {
@@ -334,6 +335,7 @@ sub objects
 }
 
 package Tangram::Expr;
+use Carp;
 
 sub new
 {
@@ -350,7 +352,7 @@ sub expr
 
 sub storage
 {
-	return shift->{objects}[0]->{storage};
+	return ((shift->{objects}->members)[0] or confess 'no storage')->storage;
 }
 
 sub type
@@ -407,7 +409,7 @@ sub binop
 	my $objects = Set::Object->new(@objects);
 	my $storage = $self->{storage};
 
-	if ($arg)
+	if (defined $arg)
 	{
 		if (my $type = ref($arg))
 		{
@@ -563,7 +565,8 @@ package Tangram::Select;
 
 use Carp;
 
-use base qw( Tangram::Expr );
+use vars qw(@ISA);
+ @ISA = qw( Tangram::Expr );
 
 sub new
 {
@@ -598,6 +601,11 @@ sub new
 	my $sql = "SELECT";
 	$sql .= ' DISTINCT' if $args{distinct};
 	$sql .= "  $cols";
+	if (exists $args{order}) {
+	    $sql .= join("", map {", $_"}
+			 grep { $sql !~ m/ \Q$_\E(?:,|$)/ }
+			 map { $_->{expr} } @{$args{order}});
+	}
 	$sql .= "\nFROM $from" if $from;
 	$sql .= "\nWHERE $where" if $where;
 

@@ -57,7 +57,8 @@ sub exists
 
 package Tangram::FlatArray;
 
-use base qw( Tangram::AbstractArray );
+use vars qw(@ISA);
+ @ISA = qw( Tangram::AbstractArray );
 use Tangram::AbstractArray;
 
 $Tangram::Schema::TYPES{flat_array} = Tangram::FlatArray->new;
@@ -185,8 +186,7 @@ sub erase
 
 	foreach my $def (values %$members)
 	{
-		my $id = $storage->id($obj);
-		$storage->sql_do("DELETE FROM $def->{table} WHERE coll = $id");
+		$storage->sql_do("DELETE FROM $def->{table} WHERE coll = $coll_id");
 	}
 }
 

@@ -6,11 +6,12 @@ use Tangram::Scalar;
 
 package Tangram::RawDateTime;
 
-use base qw( Tangram::String );
+use vars qw(@ISA);
+ @ISA = qw( Tangram::String );
 
 $Tangram::Schema::TYPES{rawdatetime} = Tangram::RawDateTime->new;
 
-sub Tangram::RawDateTime::coldefs
+sub coldefs
 {
     my ($self, $cols, $members, $schema) = @_;
     $self->_coldefs($cols, $members, "DATETIME $schema->{sql}{default_null}");

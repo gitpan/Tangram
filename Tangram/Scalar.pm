@@ -6,7 +6,8 @@ use Tangram::Type;
 
 package Tangram::Scalar;
 
-use base qw( Tangram::Type );
+use vars qw(@ISA);
+ @ISA = qw( Tangram::Type );
 
 sub reschema
 {
@@ -29,7 +30,7 @@ sub reschema
 			$def = $members->{$field} = { col => $schema->{normalize}->(($def || $field), 'fieldname') };
 		}
 
-		$self->field_reschema($field, $def);
+		$self->field_reschema($field, $def, $schema);
     }
 
     return keys %$members;
@@ -37,8 +38,8 @@ sub reschema
 
 sub field_reschema
   {
-	my ($self, $field, $def) = @_;
-	$def->{col} ||= $field;
+	my ($self, $field, $def, $schema) = @_;
+	$def->{col} ||= $schema->{normalize}->($field, 'colname');
   }
 
 sub query_expr
@@ -58,13 +59,13 @@ sub get_exporter
 	my ($self) = @_;
 	return if $self->{automatic};
 	my $field = $self->{name};
-	return "exists \$obj->{$field} ? \$obj->{$field} : undef";
+	return "exists \$obj->{q{$field}} ? \$obj->{q{$field}} : undef";
   }
 
 sub get_importer
   {
 	my ($self) = @_;
-	return "\$obj->{$self->{name}} = shift \@\$row";
+	return "\$obj->{q{$self->{name}}} = shift \@\$row";
   }
 
 sub get_export_cols
@@ -92,7 +93,8 @@ sub content
 
 package Tangram::Number;
 
-use base qw( Tangram::Scalar );
+use vars qw(@ISA);
+ @ISA = qw( Tangram::Scalar );
 
 sub get_export_cols
 {
@@ -102,18 +104,21 @@ sub get_export_cols
 
 package Tangram::Integer;
 
-use base qw( Tangram::Number );
+use vars qw(@ISA);
+ @ISA = qw( Tangram::Number );
 $Tangram::Schema::TYPES{int} = Tangram::Integer->new;
 
 package Tangram::Real;
 
-use base qw( Tangram::Number );
+use vars qw(@ISA);
+ @ISA = qw( Tangram::Number );
 
 $Tangram::Schema::TYPES{real} = Tangram::Real->new;
 
 package Tangram::String;
 
-use base qw( Tangram::Scalar );
+use vars qw(@ISA);
+ @ISA = qw( Tangram::Scalar );
 
 $Tangram::Schema::TYPES{string} = Tangram::String->new;
 

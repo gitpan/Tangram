@@ -54,7 +54,7 @@ I must be able to create and drop tables in that database.};
    my $cs = <STDIN>;
    chop $cs;
 
-   $cs = "DBI:$cs" unless $cs =~ /^DBI\:/i;
+   $cs = "dbi:$cs" unless $cs =~ /^dbi\:/i;
    
    print "2) Login: ";
    my $user = <STDIN>;
@@ -102,5 +102,5 @@ NOTESTS:
 WriteMakefile(
     'NAME'	=> 'Tangram',
     'VERSION_FROM' => 'Tangram.pm', # finds $VERSION
-    PREREQ_PM => { 'Set::Object' => 0, DBI => 0 }
+    PREREQ_PM => { 'Set::Object' => 1.03, DBI => 0, "Test::More" => 0 }
 );

@@ -5,7 +5,8 @@ use strict;
 package Tangram::Array;
 
 use Tangram::AbstractArray;
-use base qw( Tangram::AbstractArray );
+use vars qw(@ISA);
+ @ISA = qw( Tangram::AbstractArray );
 
 use Carp;
 

@@ -6,7 +6,8 @@ __END__
 
 package Tangram::IntrHash;
 
-use base qw( Tangram::AbstractHash );
+use vars qw(@ISA);
+ @ISA = qw( Tangram::AbstractHash );
 
 use Carp;
 
@@ -24,8 +25,9 @@ sub reschema
          $members->{$member} = $def;
       }
 
-      $def->{coll} ||= $class . "_$member";
-      $def->{slot} ||= $class . "_$member" . "_slot";
+      $def->{coll} ||= $schema->{normalize}->($class) . "_$member";
+      $def->{slot} ||=($schema->{normalize}->($class) . "_$member"
+		       . "_slot");
    
       $schema->{classes}{$def->{class}}{stateless} = 0;
    }

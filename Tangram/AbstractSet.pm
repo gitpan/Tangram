@@ -6,7 +6,8 @@ use Tangram::Coll;
 
 package Tangram::AbstractSet;
 
-use base qw( Tangram::Coll );
+use vars qw(@ISA);
+ @ISA = qw( Tangram::Coll );
 
 use Carp;
 
@@ -89,8 +90,13 @@ sub remember_state
 	my ($self, $def, $storage, $obj, $member, $set) = @_;
 
 	my %new_state;
-	@new_state{ map { $storage->id($_) } $set->members } = 1 x $set->size;
-	$storage->{scratch}{ref($self)}{$storage->id($obj)}{$member} = \%new_state;
+	for my $member ( $set->members ) {
+	    my $id = $storage->id($member);
+	    $id && ($new_state{ $id } = 1);
+	}
+
+	$storage->{scratch}{ref($self)}{$storage->id($obj)}{$member}
+	    = \%new_state;
 }
 
 sub content
