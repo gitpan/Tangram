@@ -50,7 +50,7 @@ sub save
    {
       push @$cols, $members->{$member}{col};
       my $tied = tied($obj->{$member});
-      push @$vals, $tied ? $tied->id : $storage->auto_insert($obj->{$member}, $table, $member, $id);
+      push @$vals, $tied ? $tied->id : $storage->auto_insert($obj->{$member}, $table, $member, $id, $members->{$member}->{deep_update});
    }
 }
 
@@ -79,7 +79,7 @@ sub query_expr
 {
    my ($self, $obj, $memdefs, $tid, $storage) = @_;
    my $dialect = $storage->{dialect};
-   return map { $self->expr("t$tid.$_", $obj) } keys %$memdefs;
+   return map { $self->expr("t$tid.$memdefs->{$_}{col}", $obj) } keys %$memdefs;
 }
 
 sub refid

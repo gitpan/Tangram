@@ -17,6 +17,7 @@ Tangram/Deploy.pm
 
 Tangram/Dialect.pm
 Tangram/Dialect/Sybase.pm
+Tangram/Dialect/Mysql.pm
 
 Tangram/Ref.pm
 
@@ -26,6 +27,7 @@ Tangram/AbstractArray.pm
 Tangram/Array.pm
 Tangram/IntrArray.pm
 Tangram/FlatArray.pm
+Tangram/FlatHash.pm
 
 Tangram/AbstractSet.pm
 Tangram/Set.pm
@@ -38,7 +40,11 @@ Tangram/IntrHash.pm
 Tangram/RawDate.pm
 Tangram/RawDateTime.pm
 Tangram/RawTime.pm
+Tangram/DMDateTime.pm
 # Tangram/Lobs.pm
+
+Tangram/PerlDump.pm
+Tangram/PerlDump.pod
 
 Tangram/Core.pod
 Tangram/Schema.pod
@@ -52,9 +58,10 @@ Tangram/Ref.pod
 Tangram/Array.pod
 Tangram/IntrArray.pod
 Tangram/FlatArray.pod
+Tangram/FlatHash.pod
 Tangram/Set.pod
 Tangram/IntrSet.pod
-# Tangram/Lobs.pod
+Tangram/DateTime.pod
 
 Tangram/Type.pod
 Tangram/Dialect.pod
@@ -70,12 +77,15 @@ t/stateless.t
 t/tx.t
 t/reload.t
 t/unload.t
+t/deep_update.t
+t/weakref.t
 
 # mappings
 t/ref.t
 t/array.t
 t/flatarray.t
+t/flathash.t
 t/iarray.t
 t/set.t
 t/iset.t
-t/datetime.t
+# t/datetime.t

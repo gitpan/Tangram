@@ -81,12 +81,12 @@ sub Tangram::Set::coldefs
 {
     my ($self, $cols, $members, $schema, $class, $tables) = @_;
 
-    foreach my $member (keys %$members)
+    foreach my $member (values %$members)
     {
-		$tables->{ $members->{$member}{table} }{COLS} =
+		$tables->{ $member->{table} }{COLS} =
 		{
-		 coll => $schema->{sql}{id},
-		 item => $schema->{sql}{id},
+		 $member->{coll} => $schema->{sql}{id},
+		 $member->{item} => $schema->{sql}{id},
 		};
     }
 }
@@ -106,12 +106,13 @@ sub Tangram::Array::coldefs
 {
     my ($self, $cols, $members, $schema, $class, $tables) = @_;
 
-    foreach my $member (keys %$members)
+    foreach my $member (values %$members)
     {
-		$tables->{ $members->{$member}{table} }{COLS} =
+		$tables->{ $member->{table} }{COLS} =
 		{
-		 coll => $schema->{sql}{id}, item => $schema->{sql}{id},
-		 slot => "INT $schema->{sql}{default_null}"
+		 $member->{coll} => $schema->{sql}{id},
+		 $member->{item} => $schema->{sql}{id},
+		 $member->{slot} => "INT $schema->{sql}{default_null}"
 		};
     }
 }
@@ -120,13 +121,13 @@ sub Tangram::Hash::coldefs
 {
     my ($self, $cols, $members, $schema, $class, $tables) = @_;
 
-    foreach my $member (keys %$members)
+    foreach my $member (values %$members)
     {
-		$tables->{ $members->{$member}{table} }{COLS} =
+		$tables->{ $member->{table} }{COLS} =
 		{
-		 coll => $schema->{sql}{id},
-		 item => $schema->{sql}{id},
-		 slot => "VARCHAR(255) $schema->{sql}{default_null}"
+		 $member->{coll} => $schema->{sql}{id},
+		 $member->{item} => $schema->{sql}{id},
+		 $member->{slot} => "VARCHAR(255) $schema->{sql}{default_null}"
 		};
     }
 }
@@ -174,7 +175,7 @@ sub _deploy_do
     my $output = shift;
 
     return ref($output) && eval { $output->isa('DBI::db') }
-		? sub { print $Tangram::TRACE @_ if $Tangram::TRACE;
+		? sub { print $Tangram::TRACE @_, "\n" if $Tangram::TRACE;
 			$output->do( join '', @_ ); }
 		: sub { print $output @_, ";\n\n" };
 }
@@ -231,8 +232,11 @@ CREATE TABLE $schema->{class_table}
 SQL
 
     my $cids = $self->classids();
-    $do->("INSERT INTO $schema->{class_table}(classId, className, lastObjectId) VALUES ($cids->{$_}, '$_', 0)" )
-        for keys %$cids;
+    foreach (keys %$cids) {
+      $do->("INSERT INTO $schema->{class_table}(classId, className, lastObjectId) VALUES ($cids->{$_}, '$_', 0)" );
+    }
+	
+      #  for keys %$cids;
 }
 
 sub classids

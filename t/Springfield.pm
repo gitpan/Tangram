@@ -7,6 +7,10 @@ use Tangram::RawTime;
 use Tangram::RawDateTime;
 
 use Tangram::FlatArray;
+use Tangram::FlatHash;
+
+use Tangram::Dialect::Sybase;
+use Tangram::Dialect::Mysql;
 
 package Springfield;
 
@@ -60,7 +64,7 @@ $schema = Tangram::Schema->new( {
 
 		#rawdate => [ qw( birthDate ) ],
 		#rawtime => [ qw( birthTime ) ],
-		rawdatetime => [ qw( birth ) ],
+		#rawdatetime => [ qw( birth ) ],
 
 		array =>
 		{
@@ -69,6 +73,12 @@ $schema = Tangram::Schema->new( {
 		  class => 'NaturalPerson',
 		  table => 'a_children',
 		  aggreg => 1,
+		 },
+		 belongings =>
+		 {
+		  class => 'Item',
+		  aggreg => 1,
+		  deep_update => 1
 		 }
 		},
 
@@ -116,6 +126,9 @@ $schema = Tangram::Schema->new( {
 		},
 
 		flat_array => [ qw( interests ) ],
+
+	        flat_hash => [ qw( opinions ) ],
+
 	   },
       },
 
@@ -176,6 +189,18 @@ $schema = Tangram::Schema->new( {
 	 {
 	  #int => { limit => { col => 'theLimit' } },
 	  int => { limit => 'theLimit' },
+	 }
+	},
+
+        Item =>
+        {
+	 fields =>
+	 {
+	  string => [ qw(name) ],
+	  ref =>
+	  {
+	   owner => { deep_update => 1 }
+	  }
 	 }
 	},
 
@@ -277,6 +302,8 @@ sub optional_tests
 {
 	my ($what, $proceed, $tests) = @_;
 
+	$test ||= 1;
+
 	unless ($proceed)
 	{
 		print STDERR "tests $test-", $test + $tests - 1,
@@ -368,6 +395,9 @@ package Opinion;
 use base qw( SpringfieldObject );
 
 package Credit;
+use base qw( SpringfieldObject );
+
+package Item;
 use base qw( SpringfieldObject );
 
 1;
