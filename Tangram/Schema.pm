@@ -40,6 +40,12 @@ sub new
     $self->{make_object} ||= sub { shift()->new() };
     $self->{class_table} ||= 'OpalClass';
 
+	$self->{sql}{default_null} ||= 'NULL';
+	$self->{sql}{id} ||= 'NUMERIC(15,0)';
+	$self->{sql}{cid} ||= 'NUMERIC(5,0)';
+	$self->{sql}{oid} ||= 'NUMERIC(10,0)';
+	$self->{sql}{cid_size} ||= 4;
+
     my $types = $self->{types} ||= {};
 
     %$types = ( %TYPES, %$types );
@@ -162,6 +168,31 @@ sub find_member
    {
       $self->visit_down($class, sub {
          die if $result = $classes->{shift()}{member_type}{$member}
+         })
+   };
+
+   $result;
+}
+
+sub find_member_class
+{
+   my ($self, $class, $member) = @_;
+   my $classes = $self->{'classes'};
+   my $result;
+   local $@;
+
+   eval
+   {
+      $self->visit_down($class,
+         sub
+         {
+            my $class = shift;
+
+            if (exists $classes->{$class}{member_type}{$member})
+            {
+               $result = $class;
+               die;
+            }
          })
    };
 

@@ -30,7 +30,6 @@ sub _open
     my $cursor = $self->sql_cursor("SELECT classId, className FROM $schema->{class_table}", $self->{db});
 
     my $classes = $schema->{classes};
-    my %table2class = map { $classes->{$_}{table}, $_ } keys %$classes;
    
     my $id2class = {};
     my $class2id = {};
@@ -39,11 +38,8 @@ sub _open
 
     while (($classId, $className) = $cursor->fetchrow())
     {
-	if ($className = $table2class{$className})
-	{
-	    $id2class->{$classId} = $className;
-	    $class2id->{$className} = $classId;
-	}
+		$id2class->{$classId} = $className;
+		$class2id->{$className} = $classId;
     }
 
     $cursor->close();
@@ -53,27 +49,27 @@ sub _open
 
     foreach my $class (keys %$classes)
     {
-	warn "no class id for '$class'\n"
-	    if $classes->{$class}{concrete} && !exists $self->{class2id}{$class};
+		warn "no class id for '$class'\n"
+			if $classes->{$class}{concrete} && !exists $self->{class2id}{$class};
     }
 
     $self->{set_id} = $schema->{set_id} ||
-	sub
-	{
-	    my ($obj, $id) = @_;
+    	sub
+		{
+			my ($obj, $id) = @_;
          
-	    if ($id)
-	    {
-		$self->{ids}{0 + $obj} = $id;
-	    }
-	    else
-	    {
-		delete $self->{ids}{0 + $obj};
-	    }
-	};
+			if ($id)
+			{
+				$self->{ids}{0 + $obj} = $id;
+			}
+			else
+			{
+				delete $self->{ids}{0 + $obj};
+			}
+		};
 
     $self->{get_id} = $schema->{get_id}
-	|| sub { $self->{ids}{0 + shift()} };
+		|| sub { $self->{ids}{0 + shift()} };
 
     return $self;
 }
@@ -155,12 +151,13 @@ sub make_id
 {
     my ($self, $class_id) = @_;
 
-    my $class_table = $self->{schema}{class_table};
+	my $schema = $self->{schema};
+    my $class_table = $schema->{class_table};
 
     my $sql = "UPDATE $class_table SET lastObjectId = lastObjectId + 1 WHERE classId = $class_id";
     $self->sql_do($sql);
     my $cursor = $self->sql_cursor("SELECT lastObjectId from $class_table WHERE classId = $class_id", $self->{db});
-    sprintf '%d%04d', $cursor->fetchrow(), $class_id;
+    sprintf "%d%0$self->{cid_size}d", $cursor->fetchrow(), $class_id;
 }
 
 sub unknown_classid
@@ -195,7 +192,7 @@ sub tx_commit
     carp $error_no_transaction unless @{ $self->{tx} };
 
     $self->{db}->commit unless $self->{no_tx}
-	|| @{ $self->{tx} } > 1; # don't commit db if nested tx
+		|| @{ $self->{tx} } > 1; # don't commit db if nested tx
 
     pop @{ $self->{tx} };	# drop rollback subs
 }
@@ -238,24 +235,24 @@ sub tx_do
 
     eval
     {
-	if ($wantarray)
-	{
-	    @results = $sub->()
-	}
-	else
-	{
-	    $results = $sub->()
-	}
+		if ($wantarray)
+		{
+			@results = $sub->();
+		}
+		else
+		{
+			$results = $sub->();
+		}
     };
 
     if ($@)
     {
-	$self->tx_rollback();
-	die $@;
+		$self->tx_rollback();
+		die $@;
     }
     else
     {
-	$self->tx_commit();
+		$self->tx_commit();
     }
 
     return wantarray ? @results : $results;
@@ -280,17 +277,17 @@ sub insert
     my ($self, @objs) = @_;
 
     my @ids = $self->tx_do(
-			   sub
-			   {
-			       map
-			       {
-				   local %done = ();
-				   local $self->{defered} = [];
-				   my $id = $self->_insert($_);
-				   $self->do_defered;
-				   $id;
-			       } @objs;
-			   } );
+	   sub
+	   {
+		   map
+		   {
+			   local %done = ();
+			   local $self->{defered} = [];
+			   my $id = $self->_insert($_);
+			   $self->do_defered;
+			   $id;
+		   } @objs;
+	   } );
 
     return wantarray ? @ids : shift @ids;
 }
@@ -314,37 +311,37 @@ sub _insert
     $self->tx_on_rollback( sub { $self->{set_id}->($obj, undef) } );
 
     $schema->visit_up($class,
-		      sub
-		      {
-			  my ($class) = @_;
+	    sub
+		{
+			my ($class) = @_;
          
-			  my $classdef = $schema->classdef($class);
+			my $classdef = $schema->classdef($class);
 
-			  my $table = $classdef->{table};
-			  my $types = $schema->{types};
-			  my (@cols, @vals);
+			my $table = $classdef->{table};
+			my $types = $schema->{types};
+			my (@cols, @vals);
 
-			  if (!@{$classdef->{bases}})
-			  {
-			      push @cols, 'classId';
-			      push @vals, $classId;
-			  }
+			if (!@{$classdef->{bases}})
+			{
+				push @cols, 'classId';
+				push @vals, $classId;
+			}
 
-			  foreach my $typetag (keys %{$classdef->{members}})
-			  {
-			      $types->{$typetag}->save(\@cols, \@vals, $obj,
-						       $classdef->{members}{$typetag},
-						       $self, $table, $id);
-			  }
+			foreach my $typetag (keys %{$classdef->{members}})
+			{
+				$types->{$typetag}->save(\@cols, \@vals, $obj,
+										 $classdef->{members}{$typetag},
+										 $self, $table, $id);
+			}
 
-			  if (@cols)
-			  {
-			      my $cols = join ', ', 'id', @cols;
-			      my $vals = join ', ', $id, @vals;
-			      my $insert = "INSERT INTO $table ($cols) VALUES ($vals)";
-			      $self->sql_do($insert);
-			  }
-		      } );
+			unless ($classdef->{stateless})
+			{
+				my $cols = join ', ', 'id', @cols;
+				my $vals = join ', ', $id, @vals;
+				my $insert = "INSERT INTO $table ($cols) VALUES ($vals)";
+				$self->sql_do($insert);
+			}
+		} );
 
     return $id;
 }
@@ -458,41 +455,57 @@ sub save
 
 sub erase
 {
-    my $self = shift;
+    my ($self, @objs) = @_;
+
     my $schema = $self->{schema};
     my $classes = $self->{schema}{classes};
 
-    foreach my $obj (@_)
-    {
-	my $id = $self->id($obj) or confess "object $obj is not persistent";
+	$self->tx_do(
+        sub
+		{
+			#foreach my $obj (@objs) # causes memory leak??
+			while (my $obj = shift @objs)
+			{
+				my $id = $self->id($obj) or confess "object $obj is not persistent";
 
-	local $self->{defered} = [];
+				local $self->{defered} = [];
       
-	$schema->visit_down(ref($obj), sub
-			    {
-				my $class = shift;
-				my $classdef = $classes->{$class};
+				$schema->visit_down(ref($obj),
+				    sub
+					{
+						my $class = shift;
+						my $classdef = $classes->{$class};
 
-				foreach my $typetag (keys %{$classdef->{members}})
-				{
-				    my $members = $classdef->{members}{$typetag};
-				    my $type = $schema->{types}{$typetag};
-				    $type->erase($self, $obj, $members, $id);
-				}
-			    } );
+						foreach my $typetag (keys %{$classdef->{members}})
+						{
+							my $members = $classdef->{members}{$typetag};
+							my $type = $schema->{types}{$typetag};
+							$type->erase($self, $obj, $members, $id);
+						}
+					} );
       
-	$schema->visit_down(ref($obj), sub
-			    {
-				my $class = shift;
-				my $classdef = $classes->{$class};
+				$schema->visit_down(ref($obj),
+					sub
+					{
+						my $class = shift;
+						my $classdef = $classes->{$class};
+						$self->sql_do("DELETE FROM $classdef->{table} WHERE id = $id")
+							unless $classdef->{stateless};
+					} );
 
-				my $sql = "DELETE FROM $classdef->{table} WHERE id = $id";
-				$self->sql_do($sql);
-			    } );
+				$self->do_defered;
 
-	$self->do_defered;
-    }
+				delete $self->{objects}{$id};
+				$self->{set_id}->($obj, undef);
 
+				$self->tx_on_rollback(
+				    sub
+					{
+						$self->{objects}{$id} = $obj;
+						$self->{set_id}->($obj, $id);
+					} );
+			}
+		} );
 }
 
 sub do_defered
@@ -501,7 +514,7 @@ sub do_defered
 
     foreach my $defered (@{$self->{defered}})
     {
-	$defered->($self);
+		$defered->($self);
     }
 
     $self->{defered} = [];
@@ -524,7 +537,7 @@ sub load
 
     return $self->{objects}{$id} if exists $self->{objects}{$id};
 
-    my $classId = int substr $id, -4;
+    my $classId = int substr $id, -$self->{cid_size};
     my $class = $self->{id2class}{$classId};
     my $alias = Tangram::CursorObject->new($self, $class);
     my $select = $alias->cols;
@@ -728,24 +741,30 @@ sub DESTROY
 
 sub prefetch
 {
-    my ($self, $remote, $member, $filter) = @_;
+	my ($self, $remote, $member, $filter) = @_;
 
-    my $class;
+	my $class;
 
-    if (ref $remote)
-    {
-	$class = $remote->class();
-    }
-    else
-    {
-	$class = $remote;
-	$remote = $self->remote($class);
-    }
+	if (ref $remote)
+	{
+		$class = $remote->class();
+	}
+	else
+	{
+		$class = $remote;
+		$remote = $self->remote($class);
+	}
 
-    my $classdef = $self->{schema}{classes}{$class} or confess "unknown class '$class'";
-    my $type = $classdef->{member_type}{$member} or confess "$class has no member '$member'";
-    my $memdef = $classdef->{MEMDEFS}{$member} or confess;
-    $type->prefetch($self, $memdef, $remote, $class, $member, $filter);
+	my $schema = $self->{schema};
+
+	my $member_class = $schema->find_member_class($class, $member)
+		or die "no member '$member' in class '$class'";
+
+	my $classdef = $schema->{classes}{$member_class};
+	my $type = $classdef->{member_type}{$member};
+	my $memdef = $classdef->{MEMDEFS}{$member};
+
+	$type->prefetch($self, $memdef, $remote, $class, $member, $filter);
 }
 
 package Tangram::Storage;
@@ -758,7 +777,9 @@ use base qw( Tangram::AbstractStorage );
 sub connect
 {
     my ($pkg, $schema, $cs, $user, $pw) = @_;
+
     my $self = $pkg->new;
+
     my $db = DBI->connect($cs, $user, $pw);
 
     eval { $db->{AutoCommit} = 0 };
@@ -768,7 +789,11 @@ sub connect
     $self->{db} = $db;
 
     @$self{ -cs, -user, -pw } = ($cs, $user, $pw);
+
+	$self->{cid_size} = $schema->{sql}{cid_size};
+
     $self->_open($schema);
+
     return $self;
 }
 
