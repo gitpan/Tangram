@@ -1,26 +1,39 @@
+use ExtUtils::MakeMaker;
+
 use DBI;
 use Set::Object;
+
+use lib '.';
+use Tangram::Deploy;
+
+sub yes
+{
+    print ' (Y/n) ';
+    return <STDIN> =~ /^(Y|)$/i;
+}
+
+print q{Do you plan to run the regression tests?
+(you will need to set up an *EMPTY* database)};
+
+goto NOTESTS unless yes();
 
 my $configured;
 
 if (-e 't/CONFIG')
 {
-   print <<'TXT';
+   print q{
 It looks like there is a 't/CONFIG' file already. It probably contains
-connection information from a previous installation.
-Should I use it? (Y/n)
-TXT
-   $configured = <STDIN> =~ /^(Y|)$/i;
+connection information from a previous installation. Should I use it?};
+   $configured = yes();
 }
 
 unless ($configured)
 {
-   print <<'MSG';
-I need an *EMPTY* database to perform the regression tests. I must be able to
-create and drop tables in that database. Please give me the following information:
-MSG
+   print q{
+Please give me the login and password for accessing the test database.
+I must be able to create and drop tables in that database.};
 
-   print "1) DBI connect string (you can omit the \'DBI:\' part): ";
+   print "\n1) DBI connect string (you can omit the \'DBI:\' part): ";
    my $cs = <STDIN>;
    chop $cs;
 
@@ -46,37 +59,28 @@ MSG
 }
 
 {
-   print "\nNow I will attempt to connect and prepare the database...";
 
-   local $/;
-   open CONFIG, 't/CONFIG' or die "Cannot open 't/CONFIG', reason: $!";
+    require 't/Springfield.pm';
+    print "\nNow I will attempt to connect and prepare the database...";
 
-   my ($cs, $user, $passwd) = split "\n", <CONFIG>;
+    local $/;
+    open CONFIG, 't/CONFIG' or die "Cannot open 't/CONFIG', reason: $!";
 
-   if (my $conn = DBI->connect( $cs, $user, $passwd ))
-   {
-      print "it worked!\n\n";
+    my ($cs, $user, $passwd) = split "\n", <CONFIG>;
 
-      $conn->{PrintError} = 0;
-      local $/ = '';
-
-      open DEPLOY, 't/deploy.sql' or die "Cannot open 'deploy.sql', reason: $!";
-
-      while (my $command = <DEPLOY>)
-      {
-         next if $command =~ /^\s*$/s;
-         eval { $conn->do("DROP TABLE $1") } if $command =~ /CREATE TABLE (\w+)/;
-         eval { $conn->do($command) };
-      }
-
-      $conn->disconnect;
-   }
-
+    if (my $dbh = DBI->connect( $cs, $user, $passwd ))
+    {
+	print "it worked!\nSay 'make test' to run the test suite.\n\n";
+	my $rs = $Springfield::schema->relational_schema();
+	do { local $dbh->{PrintError}; $rs->retreat($dbh); };
+	$rs->deploy($dbh);
+	
+	$dbh->disconnect;
+    }
 }
 
-use ExtUtils::MakeMaker;
-# See lib/ExtUtils/MakeMaker.pm for details of how to influence
-# the contents of the Makefile that is written.
+NOTESTS:
+
 WriteMakefile(
     'NAME'	=> 'Tangram',
     'VERSION_FROM' => 'Tangram.pm', # finds $VERSION

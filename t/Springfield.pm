@@ -6,7 +6,7 @@ package Springfield;
 
 use vars qw( $schema );
 
-$schema = Tangram::Schema->new(
+$schema = Tangram::Schema->new( {
 
    #set_id => sub { my ($obj, $id) = @_; $obj->{id} = $id },
    #get_id => sub { shift()->{id} },
@@ -23,10 +23,13 @@ $schema = Tangram::Schema->new(
          bases =>
             [ qw( Person ) ],
 
-         members =>
+         fields =>
          {
             string =>
-               [ qw( firstName name ) ],
+	    {
+		firstName => { sql => 'VARCHAR(40)' },
+		name => undef,
+	    },
 
             int =>
                [ qw( age ) ],
@@ -59,6 +62,7 @@ $schema = Tangram::Schema->new(
                   class => 'NaturalPerson',
                   coll => 'ia_ref',
                   slot => 'ia_slot',
+                  back => 'ia_parent'
                }
             },
 
@@ -78,6 +82,7 @@ $schema = Tangram::Schema->new(
                   class => 'NaturalPerson',
                   coll => 'is_ref',
                   slot => 'is_slot',
+                  back => 'is_parent'
                }
             },
          },
@@ -85,7 +90,7 @@ $schema = Tangram::Schema->new(
 
       Opinion =>
       {
-         members =>
+         fields =>
          {
             string =>
                [ qw( statement ) ],
@@ -97,13 +102,15 @@ $schema = Tangram::Schema->new(
          bases =>
             [ qw( Person ) ],
 
-         members =>
+         fields =>
          {
             string =>
                [ qw( name ) ],
 
             ref =>
-               [ qw( manager ) ],
+	    {		
+		manager => { null => 1 }
+	    },
          },
       },
 
@@ -111,7 +118,7 @@ $schema = Tangram::Schema->new(
       {
          abstract => 1,
 
-         members =>
+         fields =>
          {
             int => [ qw( curies ) ],
          },
@@ -121,7 +128,7 @@ $schema = Tangram::Schema->new(
       {
          bases => [ qw( LegalPerson EcologicalRisk ) ],
 
-         members =>
+         fields =>
          {
             array =>
             {
@@ -134,7 +141,7 @@ $schema = Tangram::Schema->new(
          },
       },
 
-   } );
+   } } );
 
 my ($cs, $user, $passwd);
 

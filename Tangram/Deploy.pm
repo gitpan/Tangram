@@ -8,181 +8,246 @@ my $oid_type = 'numeric(10, 0)';
 my $cid_type = 'numeric(5,0)';
 my $classname_type = 'varchar(128)';
 
-sub tabledefs
+sub relational_schema
 {
-	my ($self, $file) = @_;
+    my ($self, $file) = @_;
 
-	my $classes = $self->{classes};
-	my $tables = {};
+    my $classes = $self->{classes};
+    my $tables = {};
 
-   foreach my $class (keys %{$self->{classes}})
+    foreach my $class (keys %{$self->{classes}})
+    {
+	my $classdef = $classes->{$class};
+	my $tabledef = $tables->{$class} ||= {};
+	my $cols = $tabledef->{COLS} ||= {};
+
+	$cols->{id} = $id_type;
+	$cols->{classId} = $cid_type if $classdef->{root} == $classdef;
+
+	foreach my $typetag (keys %{$classdef->{members}})
 	{
-		my $classdef = $classes->{$class};
-		my $tabledef = $tables->{$class} ||= {};
-		my $cols = $tabledef->{COLS} ||= {};
+	    my $members = $classdef->{members}{$typetag};
+	    my $type = $self->{types}{$typetag};
 
-		$cols->{id} = $id_type;
-      $cols->{classId} = $cid_type if $classdef->{root} == $classdef;
-
-      foreach my $typetag (keys %{$classdef->{members}})
-      {
-         my $members = $classdef->{members}{$typetag};
-         my $type = $self->{types}{$typetag};
-			@{$tabledef->{COLS}}{ $type->cols($members) } = $type->coldefs($members, $self, $class, $tables);
-      }
+	    $type->coldefs($tabledef->{COLS}, $members, $self, $class, $tables);
+	    # @{$tabledef->{COLS}}{ $type->cols($members) } = $type->coldefs($members, $self, $class, $tables);
 	}
+    }
 
-	delete @$tables{ grep { 1 == keys %{ $tables->{$_}{COLS} } } keys %$tables };
+    delete @$tables{ grep { 1 == keys %{ $tables->{$_}{COLS} } } keys %$tables };
 
-	return $tables;
+    return bless [ $tables, $self ], 'Tangram::RelationalSchema';
+}
+
+sub Tangram::Scalar::_coldefs
+{
+    my ($self, $cols, $members, $sql) = @_;
+
+    for my $def (values %$members)
+    {
+	$cols->{ $def->{col} } = $def->{sql} || $sql;
+    }
 }
 
 sub Tangram::Integer::coldefs
 {
-	my ($self, $members) = @_;
-	map { 'INT NULL' } keys %$members;
+    my ($self, $cols, $members) = @_;
+    $self->_coldefs($cols, $members, 'INT NULL');
 }
 
 sub Tangram::Real::coldefs
 {
-	my ($self, $members) = @_;
-	map { 'REAL NULL' } keys %$members;
-}
-
-sub Tangram::Scalar::coldefs
-{
-	my ($self, $members) = @_;
-	map { 'VARCHAR(128) NULL' } keys %$members;
+    my ($self, $cols, $members) = @_;
+    $self->_coldefs($cols, $members, 'REAL NULL');
 }
 
 sub Tangram::Ref::coldefs
 {
-	my ($self, $members) = @_;
-	map { "$id_type NULL" } keys %$members;
+    my ($self, $cols, $members) = @_;
+
+    for my $def (values %$members)
+    {
+	$cols->{ $def->{col} } = !exists($def->{null}) || $def->{null} ? "$id_type NULL" : $id_type;
+    }
 }
 
 sub Tangram::String::coldefs
 {
-	my ($self, $members) = @_;
-	map { 'VARCHAR(128) NULL' } keys %$members;
+    my ($self, $cols, $members) = @_;
+    $self->_coldefs($cols, $members, 'VARCHAR(255) NULL');
 }
 
 sub Tangram::Set::coldefs
 {
-	my ($self, $members, $schema, $class, $tables) = @_;
+    my ($self, $cols, $members, $schema, $class, $tables) = @_;
 
-	foreach my $member (keys %$members)
-	{
-		$tables->{ $members->{$member}{table} }{COLS} =
-			{ coll => $id_type, item => $id_type };
-	}
+    foreach my $member (keys %$members)
+    {
+	$tables->{ $members->{$member}{table} }{COLS} =
+	{ coll => $id_type, item => $id_type };
+    }
 }
 
 sub Tangram::IntrSet::coldefs
 {
-	my ($self, $members, $schema, $class, $tables) = @_;
+    my ($self, $cols, $members, $schema, $class, $tables) = @_;
 
-	foreach my $member (values %$members)
-	{
-		my $table = $tables->{ $schema->{classes}{$member->{class}}{table} } ||= {};
-		$table->{COLS}{$member->{coll}} = "$id_type NULL";
-	}
+    foreach my $member (values %$members)
+    {
+	my $table = $tables->{ $schema->{classes}{$member->{class}}{table} } ||= {};
+	$table->{COLS}{$member->{coll}} = "$id_type NULL";
+    }
 }
 
 sub Tangram::Array::coldefs
 {
-	my ($self, $members, $schema, $class, $tables) = @_;
+    my ($self, $cols, $members, $schema, $class, $tables) = @_;
 
-	foreach my $member (keys %$members)
-	{
-		$tables->{ $members->{$member}{table} }{COLS} =
-			{ coll => $id_type, item => $id_type, slot => 'INT NULL' };
-	}
+    foreach my $member (keys %$members)
+    {
+	$tables->{ $members->{$member}{table} }{COLS} =
+	{ coll => $id_type, item => $id_type, slot => 'INT NULL' };
+    }
 }
 
 sub Tangram::Hash::coldefs
 {
-	my ($self, $members, $schema, $class, $tables) = @_;
+    my ($self, $cols, $members, $schema, $class, $tables) = @_;
 
-	foreach my $member (keys %$members)
-	{
-		$tables->{ $members->{$member}{table} }{COLS} =
-			{ coll => $id_type, item => $id_type, slot => 'VARCHAR(128)' };
-	}
+    foreach my $member (keys %$members)
+    {
+	$tables->{ $members->{$member}{table} }{COLS} =
+	{ coll => $id_type, item => $id_type, slot => 'VARCHAR(128)' };
+    }
 }
 
 sub Tangram::IntrArray::coldefs
 {
-	my ($self, $members, $schema, $class, $tables) = @_;
+    my ($self, $cols, $members, $schema, $class, $tables) = @_;
 
-	foreach my $member (values %$members)
-	{
-		my $table = $tables->{ $schema->{classes}{$member->{class}}{table} } ||= {};
-		$table->{COLS}{$member->{coll}} = "$id_type NULL";
-		$table->{COLS}{$member->{slot}} = 'INT NULL';
-	}
+    foreach my $member (values %$members)
+    {
+	my $table = $tables->{ $schema->{classes}{$member->{class}}{table} } ||= {};
+	$table->{COLS}{$member->{coll}} = "$id_type NULL";
+	$table->{COLS}{$member->{slot}} = 'INT NULL';
+    }
 }
 
 sub Tangram::HashRef::coldefs
 {
-	#later
+    #later
 }
 
-sub Tangram::Schema::deploy_classids
+sub Tangram::BackRef::coldefs
 {
-	my ($self) = @_;
-
-	my $classes = $self->{classes};
-   my $classids = {};
-   my $classid = 1;
-
-   foreach my $class (keys %{$self->{classes}})
-	{
-      $classids->{$class} = $classid++ unless $classes->{$class}{abstract};
-   }
-
-   return $classids;
+    return ();
 }
 
-sub Tangram::Schema::deploy
+package Tangram::Schema;
+
+sub deploy
 {
-	my ($self, $file) = @_;
+    shift->relational_schema()->deploy(@_);
+}
 
-	my $tables = $self->tabledefs;
+sub retreat
+{
+    shift->relational_schema()->retreat(@_);
+}
 
-	foreach my $table (sort keys %$tables)
-	{
-		my $def = $tables->{$table};
-		print $file "CREATE TABLE $table\n(";
-		my $cols = $def->{COLS};
+package Tangram::RelationalSchema;
 
-      my @base_cols;
+sub _deploy_do
+{
+    my $output = shift;
 
-      push @base_cols, "id $id_type NOT NULL,\n  PRIMARY KEY( id )" if exists $cols->{id};
-		push @base_cols, "classId $cid_type NOT NULL" if exists $cols->{classId};
+    return ref($output) && eval { $output->isa('DBI::db') }
+    ? sub { $output->do( join '', @_ ) }
+    : sub { print $output @_, ";\n\n" };
+}
 
-		delete @$cols{qw( id classId )};
 
-		print $file "\n  ", join( ",\n  ", @base_cols, map { "$_ $cols->{$_}" } keys %$cols );
+sub retreat
+{
+    my ($self, $output) = @_;
+    my ($tables, $schema) = @$self;
 
-		print $file "\n)\n\n";
-	}
+    my $do = _deploy_do($output);
 
-   print $file <<SQL;
-CREATE TABLE OpalClass
+    for my $table (sort keys %$tables, $schema->{class_table})
+    {
+	$do->( "DROP TABLE $table" );
+    }
+}
+
+sub deploy
+{
+    my ($self, $output) = @_;
+    my ($tables, $schema) = @$self;
+
+    $output ||= \*STDOUT;
+
+    my $do = _deploy_do($output);
+
+    foreach my $table (sort keys %$tables)
+    {
+	my $def = $tables->{$table};
+	my $cols = $def->{COLS};
+
+	my @base_cols;
+
+	push @base_cols, "id $id_type NOT NULL,\n  PRIMARY KEY( id )" if exists $cols->{id};
+	push @base_cols, "classId $cid_type NOT NULL" if exists $cols->{classId};
+
+	delete @$cols{qw( id classId )};
+
+	$do->("CREATE TABLE $table\n(\n  ",
+	      join( ",\n  ", @base_cols, map { "$_ $cols->{$_}" } keys %$cols ),
+	      "\n)" );
+    }
+
+    $do->( <<SQL );
+CREATE TABLE $schema->{class_table}
 (
-        classId $cid_type NOT NULL,
-        className $classname_type,
-        lastObjectId $oid_type,
-        PRIMARY KEY ( classId )
+ classId $cid_type NOT NULL,
+ className $classname_type,
+ lastObjectId $oid_type,
+ PRIMARY KEY ( classId )
 )
-
 SQL
 
-   my $classids = $self->deploy_classids;
-   print $file map { "INSERT INTO OpalClass(classId, className, lastObjectId) VALUES ($classids->{$_}, '$_', 0)\n\n" }
-      keys %$classids;
+    my $cids = $self->classids();
+    $do->("INSERT INTO OpalClass(classId, className, lastObjectId) VALUES ($cids->{$_}, '$_', 0)" )
+        for keys %$cids;
+}
 
+sub retreat
+{
+    my ($self, $output) = @_;
+
+    my $do = _deploy_do($output);
+
+    for my $table (sort keys %$self, 'OpalClass')
+    {
+	$do->( "DROP TABLE $table" );
+    }
+}
+
+sub classids
+{
+    my ($self) = @_;
+    my ($tables, $schema) = @$self;
+
+    my $classes = $schema->{classes};
+    my $classids = {};
+    my $classid = 1;
+
+    foreach my $class (keys %$classes)
+    {
+	$classids->{$class} = $classid++ unless $classes->{$class}{abstract};
+    }
+
+    return $classids;
 }
 
 1;

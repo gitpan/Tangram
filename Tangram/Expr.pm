@@ -224,7 +224,7 @@ sub where
 		$schema->for_each_spec($class,
 			sub { my $spec = shift; push @class_ids, $storage->class_id($spec) unless $classes->{$spec}{abstract} } );
 
-		@where_class_id = "t$root.classId IN (" . join(', ', @class_ids) . ')';
+		@where_class_id = "t$root.classId IN (" . join(', ', $storage->_kind_class_ids($class) ) . ')';
 	}
 
    return (@where_class_id, map { "t@{$_}[1].id = t$root.id" } @$tables[1..$#$tables]);
@@ -243,14 +243,31 @@ sub new
 
 sub and
 {
-   my ($self, $other, $reversed) = @_;
+   my ($self, $other) = @_;
    return op($self, 'AND', 10, $other);
+}
+
+sub and_perhaps
+{
+   my ($self, $other) = @_;
+   return $other ? op($self, 'AND', 10, $other) : $self;
 }
 
 sub or
 {
-   my ($self, $other, $reversed) = @_;
+   my ($self, $other) = @_;
    return op($self, 'OR', 9, $other);
+}
+
+sub not
+{
+   my ($self) = @_;
+
+   Tangram::Filter->new(
+      expr => "NOT ($self->{expr})",
+      tight => 100,
+      objects => Set::Object->new(
+         $self->{objects}->members ) );
 }
 
 sub as_string
@@ -259,7 +276,7 @@ sub as_string
    return ref($self) . "($self->{expr})";
 }
 
-use overload "&" => \&and, "|" => \&or, '""' => \&as_string, fallback => 1;
+use overload "&" => \&and, "|" => \&or, '!' => \&not, fallback => 1;
 
 sub op
 {
@@ -270,7 +287,7 @@ sub op
    my $lexpr = $tight > $left->{tight} ? "($left->{expr})" : $left->{expr};
    my $rexpr = $tight > $right->{tight} ? "($right->{expr})" : $right->{expr};
 
-   return new Tangram::Filter(
+   return Tangram::Filter->new(
       expr => "$lexpr $op $rexpr",
       tight => $tight,
       objects => Set::Object->new(
@@ -321,43 +338,43 @@ sub objects
 
 sub eq
 {
-   my ($self, $arg, $reversed) = @_;
-   return $self->binop('=', $arg, $reversed);
+   my ($self, $arg) = @_;
+   return $self->binop('=', $arg);
 }
 
 sub ne
 {
-   my ($self, $arg, $reversed) = @_;
-   return $self->binop('<>', $arg, $reversed);
+   my ($self, $arg) = @_;
+   return $self->binop('<>', $arg);
 }
 
 sub lt
 {
-   my ($self, $arg, $reversed) = @_;
-   return $self->binop('<', $arg, $reversed);
+   my ($self, $arg) = @_;
+   return $self->binop('<', $arg);
 }
 
 sub le
 {
-   my ($self, $arg, $reversed) = @_;
-   return $self->binop('<=', $arg, $reversed);
+   my ($self, $arg) = @_;
+   return $self->binop('<=', $arg);
 }
 
 sub gt
 {
-   my ($self, $arg, $reversed) = @_;
-   return $self->binop('>', $arg, $reversed);
+   my ($self, $arg) = @_;
+   return $self->binop('>', $arg);
 }
 
 sub ge
 {
-   my ($self, $arg, $reversed) = @_;
-   return $self->binop('>=', $arg, $reversed);
+   my ($self, $arg) = @_;
+   return $self->binop('>=', $arg);
 }
 
 sub binop
 {
-   my ($self, $op, $arg, $reversed) = @_;
+   my ($self, $op, $arg) = @_;
 
    my @objects = $self->objects;
    my $objects = Set::Object->new(@objects);
@@ -460,11 +477,13 @@ sub class
 
 sub eq
 {
-	my ($self, $other, $swapped) = @_;
-	
-	($self, $other) = ($other, $self) if $swapped;
+	my ($self, $other) = @_;
 
-	if ($other->isa('Tangram::QueryObject'))
+	if (!defined($other))
+   {
+		$self->{id} == undef
+   }
+	elsif ($other->isa('Tangram::QueryObject'))
 	{
 		$self->{id} == $other->{id}
 	}
@@ -474,6 +493,19 @@ sub eq
 			or confess "'$other' is not a persistent object";
 		$self->{id} == $self->{object}{storage}->id($other)
 	}
+}
+
+sub is_kind_of
+{
+   my ($self, $class) = @_;
+
+   my $object = $self->{object};
+   my $root = $object->{tables}[0][1];
+
+   Tangram::Filter->new(
+      expr => "t$root.classId IN (" . join(', ', $object->{storage}->_kind_class_ids($class) ) . ')',
+      tight => 100,
+      objects => Set::Object->new( $object ) );
 }
 
 use overload "==" => \&eq, "!=" => \&ne, fallback => 1;
@@ -495,26 +527,27 @@ sub new
    } @{$args{cols}};
 
    my $filter = $args{filter} || $args{where} || Tangram::Filter->new;
-   
-   my $from = $filter->from;
-   my $where;
 
-	my @objects;
+   my $objects = Set::Object->new();
 
 	if (exists $args{from})
 	{
-		$from = join ', ', map { $_->object->from } @{ $args{from} };
-	   $where = join ' AND ', $filter->{expr}, map { $_->object->where } @{ $args{from} };
+      $objects->insert( map { $_->object } @{ $args{from} } );
 	}
 	else
 	{
-		@objects = exists $args{where} ? $filter->objects : (map { $_->objects } @{$args{cols}});
-		$from = join ', ', map { $_->from } @objects;
-		my @filter = "($filter->{expr})" if $filter->{expr};
-	   $where = join ' AND ', @filter, map { $_->where } @objects;
+		$objects->insert( $filter->objects(), map { $_->objects } @{ $args{cols} } );
+      $objects->remove( @{ $args{exclude} } ) if exists $args{exclude};
 	}
 
-   my $sql = "SELECT $cols\nFROM $from";
+   my $from = join ', ', map { $_->from } $objects->members;
+
+	my $where = join ' AND ',
+      $filter->{expr} ? "($filter->{expr})" : (),
+      map { $_->where } $objects->members;
+
+   my $sql = "SELECT $cols";
+   $sql .= "\nFROM $from" if $from;
    $sql .= "\nWHERE $where" if $where;
 
    if (exists $args{order})
@@ -522,7 +555,7 @@ sub new
       $sql .= "\nORDER BY " . join ', ', map { $_->{expr} } @{$args{order}};
    }
 
-   my $self = $type->SUPER::new("($sql)", 'Tangram::Integer', @objects);
+   my $self = $type->SUPER::new("($sql)", 'Tangram::Integer');
 	
 	$self->{cols} = $args{cols};
 
@@ -534,6 +567,10 @@ sub from
 	my ($self) = @_;
 	my $from = $self->{from};
 	return $from ? $from->members : $self->SUPER::from;
+}
+
+sub where
+{
 }
 
 sub execute

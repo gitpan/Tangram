@@ -23,7 +23,7 @@ sub marge_test
 		|| $storage->load( $id{Marge} )->children eq 'Bart Lisa Maggie' );
 }
 
-Springfield::begin_tests(36);
+Springfield::begin_tests(39);
 
 sub stdpop
 {
@@ -146,6 +146,18 @@ Springfield::leaktest;
    my $homer = $storage->load( $id{Homer} );
 
    Springfield::test( $homer->children eq 'Bart Lisa Maggie' );
+	marge_test( $storage );
+
+   $storage->disconnect;
+}
+
+Springfield::leaktest;
+
+{
+   my $storage = Springfield::connect;
+   my $bart = $storage->load( $id{Bart} );
+
+   Springfield::test( !$intrusive || $bart->{ia_parent}{firstName} eq 'Homer' );
 	marge_test( $storage );
 
    $storage->disconnect;

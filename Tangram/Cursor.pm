@@ -211,10 +211,16 @@ sub _next
    {
       @row = $self->{-cursor}->fetchrow;
       last if @row;
-      $self->{-cursor}->close();
 
       my $select = shift @{$self->{-selects}};
-      return undef unless $select;
+      
+      unless ($select)
+      {
+         $self->{-cursor}->close();
+         return undef;
+      }
+
+      $self->{-cursor}{statement}->finish;
 
       my ($sql, @parts) = @$select;
       $self->{parts} = \@parts;
@@ -225,7 +231,7 @@ sub _next
    my $storage = $self->{-storage};
 
    my $classId = shift @row;
-   my $class = $storage->{id2class}{$classId};
+   my $class = $storage->{id2class}{$classId} or die "unknown class id $classId";
 
    # even if object is already loaded we must read it so that @rpw only contains residue
    my $obj = $storage->read_object($id, $class, \@row, @{ $self->{parts} } );
@@ -310,6 +316,19 @@ sub fetchrow
 	my @row = $self->{cursor}->fetchrow;
 	return () unless @row;
 	map { $_->{type}->read_data(\@row) } @{$self->{select}{cols}};
+}
+
+sub fetchall_arrayref
+{
+	my $self = shift;
+   my @results;
+
+	while (my @row = $self->fetchrow)
+   {
+      push @results, [ @row ];
+   }
+
+   return \@results;
 }
 
 sub new

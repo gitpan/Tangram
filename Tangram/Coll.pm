@@ -1,6 +1,7 @@
 use strict;
 
 use Tangram::Type;
+use Tangram::Ref;
 
 package Tangram::Coll;
 
@@ -28,13 +29,39 @@ sub read
    }
 }
 
-package Tangram::CollExpr;
+package Tangram::AbstractCollExpr;
 
 sub new
 {
    my $pkg = shift;
    bless [ @_ ], $pkg;
 }
+
+sub exists
+{
+   my ($self, $expr, $filter) = @_;
+   my ($coll) = @$self;
+
+   if ($expr->isa('Tangram::QueryObject'))
+   {
+      $expr = Tangram::Select->new
+         (
+         cols => [ $expr->{id} ],
+         exclude => [ $coll ],
+         filter => $self->includes($expr)->and_perhaps($filter)
+         );
+   }
+
+   my $expr_str = $expr->{expr};
+   $expr_str =~ tr/\n/ /;
+
+   return Tangram::Filter->new( expr => "exists $expr_str", tight => 100,
+      objects => Set::Object->new( $expr->objects() ) );
+}
+
+package Tangram::CollExpr;
+
+use base qw( Tangram::AbstractCollExpr );
 
 sub includes
 {
@@ -79,11 +106,7 @@ sub includes
 
 package Tangram::IntrCollExpr;
 
-sub new
-{
-   my $pkg = shift;
-   bless [ @_ ], $pkg;
-}
+use base qw( Tangram::AbstractCollExpr );
 
 sub includes
 {
@@ -199,5 +222,60 @@ sub DESTROY
    $self->{-storage}->free_table($self->{-coll_tid});
 }
 
+package Tangram::BackRefOnDemand;
+
+use base qw( Tangram::RefOnDemand );
+
+sub FETCH
+{
+   my $self = shift;
+   my ($storage, $id, $member, $refid) = @$self;
+   my $obj = $storage->{objects}{$id};
+   my $refobj = $storage->load($refid);
+   untie $obj->{$member};
+   $obj->{$member} = $refobj; # weak
+   return $refobj;
+}
+
+package Tangram::BackRef;
+
+use base qw( Tangram::Scalar );
+
+$Tangram::Schema::TYPES{backref} = Tangram::BackRef->new;
+
+sub save
+{
+   () # do nothing; save is done by the collection
+}
+
+sub read
+{
+   my ($self, $row, $obj, $members, $storage) = @_;
+   
+   my $id = $storage->id($obj);
+
+   foreach my $r (keys %$members)
+   {
+      my $rid = shift @$row;
+
+      if ($rid)
+      {
+         tie $obj->{$r}, 'Tangram::BackRefOnDemand', $storage, $id, $r, $rid;
+      }
+      else
+      {
+         $obj->{$r} = undef;
+      }
+   }
+}
+
+package Tangram::Alias;
+
+my $top = 1_000;
+
+sub new
+{
+   ++$top
+}
 
 1;

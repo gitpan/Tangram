@@ -1,547 +1,204 @@
 =head1 NAME
 
-Tangram::Schema
+Tangram::Schema - describe a system of persistent classes
 
 =head1 SYNOPSIS
 
-   use Tangram;
+	use Tangram::Core; 	# or: use Tangram;
 
-   $schema = Tangram::Schema->new( %hash );
+	$schema = Tangram::Schema->new( $hashref );
 
-   use Tangram::Deploy;
-   $schema->deploy( \*FILE );
+	$schema = Tangram::Schema->new( %hash ); # only for compatibility
+
+	$storage->connect( $schema, ... );
    
 
 =head1 DESCRIPTION
 
-A Schema defines a mapping between a system of classes and a relational database.
+A Schema contains all the information about the persistent aspects of
+a system of classes. That information is used to perform the mapping
+between OO constructs and a relational database.
+
+Schema objects are initialized from a nested data structure called a
+schema hash. The general structure of the schema hash is described
+here.
+
+The resulting Schema object becomes the owner of the schema hash
+passed to new(). The hash may not be modified afterwards, and no
+assumptions can be made regarding its content.
 
 =head1 CLASS METHODS
 
-=head2 new( %h )
+=head2 new( $hash )
 
 Returns a new Schema object.
 
-%h is a L<SCHEMA HASH> describing an entire system of persistent classes.
+$hash is a reference to a L<"SCHEMA HASH">.
 
 The newly created Schema object becomes the owner of the hash,
 which can no longer be modified nor reused by client code.
 
 =head1 INSTANCE METHODS
 
-=head2 deploy( FILEHANDLE )
+=head2 deploy( HANDLE )
 
-Writes SQL statements to FILEHANDLE.
-The resulting SQL code prepares an empty database for use with this Schema.
+See L<Tangram::Deploy>.
 
-If FILEHANDLE is omitted, deploy() writes to STDOUT.
+=head2 retreat( HANDLE )
 
-Note that method deploy() must be explicitly loaded via a C<use Tangram::Deploy> directive.
-
-=head1 SCHEMA HASH
-
-The schema hash contains information on how to map en entire system of classes to the database.
-Currently it only has one documented entry C<classes>. The associated value is a reference
-to a hash that contains one entry per persistent class.
-
-Example:
-
-   $schema = Tangram::Schema->new(
-      classes =>
-      {
-         class1 => { ... },
-         class2 => { ... },
-         ...
-      } );
-
-=head1 MAPPING A CLASS
-
-An individual class is mapped by introducing an entry in the hash at C<$schema{classes}>.
-The key is the class name. The associated value is a hash containing the following fields:
-
-=over 4
-
-=item *
-
-table
-
-=item *
-
-abstract
-
-=item *
-
-bases
-
-=item *
-
-members
-
-=back
-
-All fields are optional.
-
-The C<table> field contains the name of the table to be used to store the state of an object
-of the class being defined. The table contains only the direct attributes of the class.
-
-If the C<table> field is absent, the table name defaults to the class name.
-
-The C<abstract> field, if present and set to a true value, specifies that the class is abstract and
-has no instances. Tangram will not issue SELECTs to retrieve objects of this exact class.
-
-The C<bases> field contains reference to an array of base class names. If it is absent, the class
-is assumed to have no bases.
-
-The C<members> fields contains a hash of member definitions. See L<MAPPING MEMBERS>.
-
-=head1 MAPPING MEMBERS
-
-The persistent members of a class are grouped by type inside the hash at
-$schema{classes}{class_name}{members}. Each key in the hash identifies a type. The associated
-value, a reference to a hash or an array, defines the name 
-
-Example:
-
-   $schema = Tangram::Schema->new(
-      classes =>
-      {
-         Person =>
-         {
-            strings  => { string members },
-         },
-      } );
-
-Tangram comes with several 
-
-=head1 MAPPING SCALAR TYPES
-
-The simple types are:
-
-=over 4
-
-=item *
-
-string
-
-=item *
-
-int
-
-=item *
-
-real
-
-=item *
-
-ref
-
-=back
-
-=head1 MAPPING COLLECTIONS
-
-Currently Tangram supports three types of collections: Perl arrays, Perl hashes and Set::Object.
-For each collection type, Tangram provides two mappings
-
-=head1 MAPPING ARRAYS OF OBJECTS
-
-=head1 MAPPING Set::Object
-
-=head1
+See L<Tangram::Deploy>.
 
 =head1 SCHEMA HASH
 
-Currently the Schema hash has only one documented entry:
+The schema hash describes the persistent aspects of a system of
+classes. It is a multilevel data structure.
 
 =over 4
 
-=item *
+=item 1
 
-classes => L<class dictionary>
+The first level of the hash contains information that is relevant to
+the system as a whole.
+
+=item 2
+
+The second level contains information on a per-class basis.
+
+=item 3
+
+The third level contains information about the individual fields in a
+class. That information depends on the type of the field and is not
+documented here; see L<field hash> for a list of predefined
+persistent types.
 
 =back
 
-=head2 Class dictionary
+=head2 Global properties
 
-The class dictionary is a hash that associates class names to L<class description>s.
-It contains one entry per persistent class in a database.
+The first level of the schema hash describes aspects that are global
+to a system of persistent classes. It has the following aspect:
 
-Example:
+	{
+		classes =>
+		{
+			Identity =>
+			{
+				table => 'IdentityState',
+				abstract => 1
+			},
 
-   $schema = Tangram::Schema->new(
-      classes =>
-      {
-         Person =>
-         {
-            # class description
-         },
+			NaturalPerson =>
+			{
+				bases => [ qw( Identity ) ],
+			},
 
-         NaturalPerson =>
-         {
-            # class description
-         },
+			LegalPerson =>
+			{
+				bases => [ qw( Identity ) ],
+			},
+		},
 
-         LegalPerson =>
-         {
-            # class description
-         },
+		make_object => sub { ... },
 
-         # etc etc etc
+		set_id => sub { ... }
 
-      } );
+		get_id => sub { ... }
 
-=head2 Class description
+		class_table => '...'
+	}
 
-A class description is a hash that contains all the information necessary for mapping
-the objects of a given class. It has the following entries:
+C<classes> is a hash called the L<class registry>. It contains a
+description of each persistent class.
+
+C<make_object> contains a reference to a closure that returns a
+new object of a given class. This field is optional: by default,
+Tangram calls class method new().
+
+C<set_id> and C<get_id> are used together to associate an object ID
+with a persistent object. By default, Tangram converts a reference to
+an object to a unique integer value by evaluating the expression C<0
++ $obj>. The result is used as a key in a hash contained in the
+Storage object. The values in that hash are the object IDs.
+
+If any of your classes use overloading, this approach will not work
+and you will need to supply your own get/set_id methods.
+
+C<class_table> contains the name of a database table that
+Tangram uses for internal bookkeeping. It defaults to 'OpalClass'
+(Opal is Tangram's real name).
+
+=head2 class registry
+
+The class registry is a hash containing one entry per persistent
+class. The key is the class name, the value is a reference to a hash
+called the class hash. It contains information on how to map the
+class.
+
+The class hash has the following fields:
 
 =over 4
 
-=item *
+=item * table
 
-table => L<table name>
+=item * abstract
 
-=item *
+=item * bases
 
-abstract => L<abstract specifier>
+=item * fields
 
-=item *
-
-bases => L<base array>
-
-=item *
-
-members => L<member dictionary>
+=item * members (deprecated; use fields)
 
 =back
 
-All fields are optional.
+Field C<table> sets the name of the table that Tangram should use to store
+the state of objects pertaining to this class. This field is optional:
+it defaults to the class name. If the class name is not an acceptable
+SQL table identifier, you will need to set this field.
 
-Currently Tangram uses one table per class. The table does not contain the attributes inherited
-from base classes. Consequently an object usually spans several tables. A future release will
-provide more flexibility in the mapping.
+Field C<abstract> contains a boolean that should be true if the class
+is abstract. If this field is not present, the class is considered to
+be concrete.
 
-=head3 table name
+Field C<bases> contains a reference to an array of base classes.
 
-The C<table> field in the class hash contains the name of the table that correspond to the class.
-In the absence of this field, the table has the same name as the class. If the class name is a
-SQL reserved word, the C<table> field can be used to specify a different name.
+Field C<fields> contains a reference to the L<field hash>.
 
-Example:
+Field C<members> is deprecated; use C<fields> instead.
 
-   $schema = Tangram::Schema->new(
-      classes =>
-      {
-         Person =>
-         {
-            # no 'table' field - table will be named 'Person'
-         },
+=head2 field hash
 
-         Identity =>
-         {
-            table => 'IdentityInfo', # Identity is not a valid table name
-            ...
-         },
-      } );
+Each persistent type is identified by a 'typetag', e.g. C<int>, C<string>
+or C<array>.
 
-=head3 abstract specifier
+All the persistent fields of a given type are grouped
+together inside the field hash, where the typetag is used as a
+key. The individual fields are specified in an array or a hash, whose
+layout is type-dependant. For example:
 
-The C<abstract> field in the L<class description> hash should be set to C<true> is the
-class is abstract. Tangram will not waste time attempting to retrieve objects of this exact
-type since none exists - in theory.
+	fields =>
+	{
+	   	string   => [ qw( firstName name ) ],
+	   	int      => [ qw( age ) ],
+	   	ref      => { partner => { null => 1 } },
+	   	array    => { children => 'NaturalPerson' },
+	},
 
-Example:
+The typetag not only specifies the type of a field, but also the way
+in which it should be mapped to SQL constructs. Sometimes the same
+Perl type lends itself to more than one mapping, for example there are
+at least two plausible ways of mapping a Perl array
+(see L<Tangram::Array> and L<Tangram::IntrArray>).
 
-   $schema = Tangram::Schema->new(
-      classes =>
-      {
-         Shape =>
-         {
-            abstract => 1,
-            ...
-         },
-      } );
+Tangram's persistent type system is extensible, allowing you to mount
+your own types and make them persistent. All you have to do is to
+register your type and provide mapping code. See L<Tangram::Type>.
 
-=head3 base array
+Tangram comes with built-in support for the following types:
 
-The C<bases> field in the L<class description> contains a reference to an array of base class names.
-When an object of this type (or of a derived type) will be loaded, the state pertaining to its
-base classes will be loaded as well.
+* string, int, real: see L<Tangram::Scalar>
 
-Tangram also uses this field to compute the derivation tree of each class and implement polymorphism.
+* reference : see L<Tangram::Ref>
 
-=head2 member dictionary
+* array : see L<Tangram::Array>, L<Tangram::IntrArray>
 
-The member hash contains one (optional) entry per possible member type. The value associated
-to each entry describes all the members of that type. Its exact format depends on the type.
-
-Currently the possible entries are:
-
-=over 4
-
-=item *
-
-string => L<scalar members>
-
-=item *
-
-int => L<scalar members>
-
-=item *
-
-real => L<scalar members>
-
-=item *
-
-ref => L<scalar members>
-
-=item *
-
-array => L<array members>
-
-=item *
-
-iarray => L<iarray members>
-
-=item *
-
-set => L<set members>
-
-=item *
-
-iset => L<iset members>
-
-=back
-
-=head3 scalar members
-
-Strings. integers, reals and references are collectively called 'scalar members'.
-Attributes of scalar types occupy a single column on the class' corresponding table.
-They can be specified either as an array of member names or as a hash.
-If the array form is used, the name of the column is the name of the member.
-The hash form associates member names to column names.
-
-Example:
-
-      $schema = Tangram::Schema->new(
-         classes =>
-         {
-            Person =>
-            {
-               int      => [ qw( age ) ],
-               strings  => { name => 'name', where => 'where_col' },
-            },
-         } );
-
-Note that we must use the hash form because 'where' is not a valid column name.
-
-=head3 Collections
-
-=head4 Array or set?
-
-Currently Tangram supports two collection types: plain Perl arrays and Set::Object.
-More collections will be added in the future.
-
-=head4 Extrusive or intrusive?
-
-Tangram supports offers two options for mapping the standard collections: 'extrusive' and 'intrusive'.
-
-The extrusive mapping uses an intermediate table (often called a 'link' table) to store the state
-of the collection. Each row in that table contains two foreign keys: one pointing to the
-containing object, and one pointing to the element. Extra columns contain collection-specific
-data, like the position of the element in the case of a Perl array. This mapping is ideal
-for representing many-to-many relationships.
-
-The intrusive mapping stores the collection data in the element's table. It adds at least one column,
-which contains a foreign key that points to the containing object. Again, extra columns may be
-needed to host additional information if the collection requires it. This mapping is typically used
-to map one-to-many relationships.
-
-Note that the intrusive mapping does not allow the same object to be contained in the same collection
-in two different objects. Consider the following code:
-
-   $homer->{children} = [ $bart ];
-   $marge->{children} = [ $bart ];
-   $storage->insert( $homer, $marge );
-
-This is okay if C<children> uses the extrusive mapping. Otherwise, Tangram will silently make
-Marge the sole parent of Bart.
-
-Also note that the intrusive mapping is not always the best way to map a one-to-many relationship.
-It consumes at least one column per collection, even for objects that are not part of any collection.
-
-=head4 array members
-
-Maps Perl arrays of B<objects> in a non-intrusive fashion.
-
-The array hash contains one entry per persistent member of array type. The associated value
-can be either the class of the elements, or a hash containing the following entries:
-
-=over 4
-
-=item *
-
-class => the class of the elements
-
-=item *
-
-table => the name of the intermediate table
-
-=back
-
-If the short form is used, Tangram computes a default table name.
-
-Example:
-
-   $schema = Tangram::Schema->new(
-      classes =>
-      {
-         NaturalPerson =>
-         {
-            members =>
-            {
-               array =>
-               {
-                  children => 'NaturalPerson',
-                  
-                  colleagues =>
-                  {
-                     class => 'NaturalPerson',
-                     table => 'NCC1701'
-                  }
-               },
-         },
-      } );
-
-=head4 iarray members
-
-Maps Perl arrays of B<objects> in an intrusive fashion.
-
-The iarray hash contains one entry per persistent member of array type. The associated value
-can be either the class of the elements, or a hash containing the following entries:
-
-=over 4
-
-=item *
-
-class => the class of the elements
-
-=item *
-
-coll => the name of the column on the element's table containing the foreign key to the
-containing object
-
-=item *
-
-slot => the name of the column on the element's table containing the position of the element
-in the collection
-
-=back
-
-Example:
-
-   $schema = Tangram::Schema->new(
-      classes =>
-      {
-         NaturalPerson =>
-         {
-            members =>
-            {
-               iarray =>
-               {
-                  hobbies => 'Hobby',
-                  
-                  opinions =>
-                  {
-                     class => 'Opinion',
-                     coll => 'beholder',
-                     slot => 'opinion_ix'
-                  }
-               },
-         },
-      } );
-
-=head4 set members
-
-Maps Set::Object in a non-intrusive fashion.
-
-The set hash contains one entry per persistent member of Set::Object.
-The associated value can be either the class of the elements,
-or a hash containing the following entries:
-
-=over 4
-
-=item *
-
-class => the class of the elements
-
-=item *
-
-table => the name of the intermediate table
-
-=back
-
-If the short form is used, Tangram computes a default table name.
-
-Example:
-
-   $schema = Tangram::Schema->new(
-      classes =>
-      {
-         NaturalPerson =>
-         {
-            members =>
-            {
-               set =>
-               {
-                  children => 'NaturalPerson',
-                  
-                  colleagues =>
-                  {
-                     class => 'NaturalPerson',
-                     table => 'NCC1701'
-                  }
-               },
-         },
-      } );
-
-=head4 iset members
-
-Maps Set::Object in an intrusive fashion.
-
-The iset hash contains one entry per persistent member of array type. The associated value
-can be either the class of the elements, or a hash containing the following entries:
-
-=over 4
-
-=item *
-
-class => the class of the elements
-
-=item *
-
-coll => the name of the column on the element's table containing the foreign key to the
-containing object
-
-=back
-
-Example:
-
-   $schema = Tangram::Schema->new(
-      classes =>
-      {
-         NaturalPerson =>
-         {
-            members =>
-            {
-               iset =>
-               {
-                  hobbies => 'Hobby',
-                  
-                  opinions =>
-                  {
-                     class => 'Opinion',
-                     coll => 'beholder',
-                  }
-               },
-         },
-      } );
+* Set::Object : see L<Tangram::Set>, L<Tangram::IntrSet>

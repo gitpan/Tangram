@@ -32,62 +32,77 @@ use vars qw( %TYPES );
 
 sub new
 {
-   my $pkg = shift;
-   my $self = bless { @_ }, $pkg;
+    my $pkg = shift;
 
-   my $types = $self->{types} ||= {};
+	my $self = ref $_[0] ? shift() : { @_ };
+    bless $self, $pkg;
 
-   %$types = ( %TYPES, %$types );
+    $self->{make_object} ||= sub { shift()->new() };
+    $self->{class_table} ||= 'OpalClass';
 
-   my $classes = $self->{'classes'};
-   bless $classes, 'Tangram::ClassHash';
+    my $types = $self->{types} ||= {};
 
-   while (my ($class, $def) = each %$classes)
-   {
-      my $classdef = $classes->{$class};
+    %$types = ( %TYPES, %$types );
 
-      bless $classdef, 'Tangram::Class';
+    my $classes = $self->{'classes'};
+    bless $classes, 'Tangram::ClassHash';
 
-      $classdef->{table} ||= $class;
+    while (my ($class, $def) = each %$classes)
+    {
+		my $classdef = $classes->{$class};
 
-      my $cols = 0;
+		bless $classdef, 'Tangram::Class';
 
-      foreach my $typetag (keys %{$classdef->{members}})
-      {
-         my $memdefs = $classdef->{members}{$typetag};
-         $memdefs = $classdef->{members}{$typetag} = { map { $_, $_ } @$memdefs } if (ref $memdefs eq 'ARRAY');
-         my $type = $self->{types}{$typetag};
-         my @members = $types->{$typetag}->reschema($memdefs, $class, $self) if $memdefs;
-         @{$classdef->{member_type}}{@members} = ($type) x @members;
-         
-         @{$classdef->{MEMDEFS}}{keys %$memdefs} = values %$memdefs;
-			
-         local $^W = undef;
-         $cols += scalar($type->cols($memdefs));
-      }
+		$classdef->{table} ||= $class;
 
-      $classdef->{stateless} = !$cols && (!exists $classdef->{stateless} || $classdef->{stateless});
+		$classdef->{fields} ||= $classdef->{members};
+		$classdef->{members} = $classdef->{fields};
 
-      foreach my $base (@{$classdef->{bases}})
-      {
-         push @{$classes->{$base}{specs}}, $class;
-      }
-   }
+		my $cols = 0;
 
-   while (my ($class, $classdef) = each %$classes)
-   {
-      my $root = $class;
-      
-      while (@{$classes->{$root}{bases}})
-      {
-         $root = @{$classes->{$root}{bases}}[0];
-      }
+		foreach my $typetag (keys %{$classdef->{members}})
+		{
+			my $memdefs = $classdef->{members}{$typetag};
+	    
+			$memdefs = $classdef->{members}{$typetag} =
+			{ map { $_, $_ } @$memdefs } if (ref $memdefs eq 'ARRAY');
 
-      $classdef->{root} = $classes->{$root};
-      delete $classdef->{stateless} if $root eq $class;
-   }
+			my $type = $self->{types}{$typetag};
 
-   return $self;
+			my @members = $types->{$typetag}->reschema($memdefs, $class, $self)
+				if $memdefs;
+
+			@{$classdef->{member_type}}{@members} = ($type) x @members;
+	    
+			@{$classdef->{MEMDEFS}}{keys %$memdefs} = values %$memdefs;
+	    
+			local $^W = undef;
+			$cols += scalar($type->cols($memdefs));
+		}
+
+		$classdef->{stateless} = !$cols
+			&& (!exists $classdef->{stateless} || $classdef->{stateless});
+
+		foreach my $base (@{$classdef->{bases}})
+		{
+			push @{$classes->{$base}{specs}}, $class;
+		}
+    }
+
+    while (my ($class, $classdef) = each %$classes)
+    {
+		my $root = $class;
+	
+		while (@{$classes->{$root}{bases}})
+		{
+			$root = @{$classes->{$root}{bases}}[0];
+		}
+
+		$classdef->{root} = $classes->{$root};
+		delete $classdef->{stateless} if $root eq $class;
+    }
+
+    return $self;
 }
 
 sub check_class
@@ -244,6 +259,13 @@ sub declare_classes
 
       eval $decl;
    }
+}
+
+sub is_persistent
+{
+   my ($self, $x) = @_;
+   my $class = ref($x) || $x;
+   return $self->{classes}{$class} && $self->{classes}{$class};
 }
 
 1;

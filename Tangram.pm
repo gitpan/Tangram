@@ -11,22 +11,20 @@ require Exporter;
 @EXPORT = qw(
 	
 );
-$VERSION = '0.12';
+$VERSION = '1.00';
 
 
 # Preloaded methods go here.
 
-use Set::Object;
+use Tangram::Core;
 
-use Tangram::Scalar;
-use Tangram::Ref;
 use Tangram::Set;
+use Tangram::IntrSet;
+
 use Tangram::Array;
+use Tangram::IntrArray;
+
 use Tangram::Hash;
-use Tangram::Schema;
-use Tangram::Cursor;
-use Tangram::Storage;
-use Tangram::Expr;
 
 1;
 
