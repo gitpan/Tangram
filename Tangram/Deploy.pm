@@ -174,15 +174,17 @@ sub _deploy_do
     my $output = shift;
 
     return ref($output) && eval { $output->isa('DBI::db') }
-		? sub { $output->do( join '', @_ ) }
+		? sub { print $Tangram::TRACE @_ if $Tangram::TRACE;
+			$output->do( join '', @_ ); }
 		: sub { print $output @_, ";\n\n" };
 }
-
 
 sub retreat
 {
     my ($self, $output) = @_;
     my ($tables, $schema) = @$self;
+
+    $output ||= \*STDOUT;
 
     my $do = _deploy_do($output);
 
@@ -229,20 +231,8 @@ CREATE TABLE $schema->{class_table}
 SQL
 
     my $cids = $self->classids();
-    $do->("INSERT INTO OpalClass(classId, className, lastObjectId) VALUES ($cids->{$_}, '$_', 0)" )
+    $do->("INSERT INTO $schema->{class_table}(classId, className, lastObjectId) VALUES ($cids->{$_}, '$_', 0)" )
         for keys %$cids;
-}
-
-sub retreat
-{
-    my ($self, $output) = @_;
-
-    my $do = _deploy_do($output);
-
-    for my $table (sort keys %$self, 'OpalClass')
-    {
-		$do->( "DROP TABLE $table" );
-    }
 }
 
 sub classids

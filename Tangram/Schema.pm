@@ -40,7 +40,7 @@ sub new
     $self->{make_object} ||= sub { shift()->new() };
     $self->{class_table} ||= 'OpalClass';
 
-	$self->{sql}{default_null} ||= 'NULL';
+	$self->{sql}{default_null} = 'NULL' unless exists $self->{sql}{default_null};
 	$self->{sql}{id} ||= 'NUMERIC(15,0)';
 	$self->{sql}{cid} ||= 'NUMERIC(5,0)';
 	$self->{sql}{oid} ||= 'NUMERIC(10,0)';
@@ -74,6 +74,11 @@ sub new
 			{ map { $_, $_ } @$memdefs } if (ref $memdefs eq 'ARRAY');
 
 			my $type = $self->{types}{$typetag};
+
+			croak("Unknow field type '$typetag', ",
+				  "did you forget some 'use Tangram::SomeType' ",
+				  "in your program?\n")
+				unless defined $types->{$typetag};
 
 			my @members = $types->{$typetag}->reschema($memdefs, $class, $self)
 				if $memdefs;

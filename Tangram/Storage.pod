@@ -33,22 +33,35 @@ An Tangram::Storage object is a connection to a database configured for use with
 
 =head1 CLASS METHODS
 
-=head2 connect( $schema, @dbi_args )
+=head2 connect( $schema, $data_source, $username, $auth, \%options )
 
 Connects to a storage and return a handle object. Dies in case of failure.
 
 $schema is an L<Tangram::Schema> object consistent with the database.
 
-The other arguments (@dbi_args) are passed directly to DBI::connect.
+$data_source, $username and $auth are passed directly to
+DBI::connect().
 
-=head2 connect( $schema, $handle )
+\%options is a reference to a hash that may contain the following
+fields:
 
-Connects an Tangram::Storage object to an already opened DBI data source.
+=over 4
 
-$schema is an Tangram::Schema object compatible with the database content.
+=item * dbh 
 
-$handle is a DBI handle object (or an object supporting the DBI protocol) connected
-to a database.
+=item * dialect
+
+=back
+
+All fields are optional.
+
+C<dbh> can be used to connect a Storage via an existing DBI
+handle. $data_source, $username and $auth are still needed because
+Tangram may need to open extra connections (see below).
+
+C<dialect> contains a Dialect object (see L<Tangram::Dialect>); this is
+useful for accessing extra functionality available in some dialects of
+SQL. You may also specify the dialect as a class name.
 
 =head1 INSTANCE METHODS
 
@@ -148,6 +161,35 @@ satisfy $filter if it is present (see also: Remote and Filter).
 
 Valid only in list context.
 
+=head2 select( $remote, opt1 => val1 [, op2 => val2 ... ] )
+
+Returns a list containing all the objects that are type-compatible
+with $remote.
+
+A series of optional directives can be passed as key/value
+pairs. Currently Tangram recognizes the following directives:
+
+=over 4
+
+=item * filter
+
+=item * order
+
+=item * desc
+
+=back
+
+Option C<filter> specifies a Filter that can be used to restrict the
+result set.
+
+Option C<order> is an array of Expr; order result set by increasing
+value of Exprs.
+
+Option C<desc> is a boolean; a true value reverses the order specified
+by the C<order> option.
+
+Valid only in list context.
+
 =head2 cursor( $remote [ , $filter ] )
 
 Returns a Cursor on the objects that are type-compatible with $remote, and
@@ -156,6 +198,30 @@ satisfy $filter if it is present (see also: Remote and Filter).
 $remote must be an Tangram::Remote object. $filter must be an Tangram::Filter if it is present.
 
 Valid only in scalar context.
+
+=head2 cursor( $remote, opt1 => val1 [, op2 => val2 ... ] )
+
+Returns a Cursor on the objects that are type-compatible with $remote.
+
+A series of optional directives can be passed as key/value
+pairs. Currently Tangram recognizes the following directives:
+
+=over 4
+
+=item * filter
+
+=item * order
+
+=item * desc
+
+=item * retrieve
+
+=back
+
+For options C<filter>, C<order> and C<desc>, see C<select> above.
+
+Option C<retrieve> is an array of Expr, to be retrieved in addition to
+the object itself.
 
 =head2 erase( @objs )
 
@@ -191,6 +257,7 @@ Example:
    f(); # 1
    g(); # 2
 
+
 In (1), f() commits the changes to $homer directly to the database.
 
 In (2), f() transparently reuses the transaction opened by g().\
@@ -208,12 +275,16 @@ Rolls back the current Tangram transaction for this storage.
 If the transaction being rolled back is the outermost transaction for this storage, the DBI
 transaction is also rolled back.
 
-=head2 tx_do( CODEREF )
+=head2 tx_do( CODEREF, @args )
 
-Executes CODEREF under the protection of a Tangram transaction.
-Rolls back the transaction if CODEREF dies; in which case the exception is re-thrown.
-Returns the results of CODEREF, either as a scalar or as a list depending on the
-context in which tx_do was called.
+Executes CODEREF under the protection of a Tangram transaction and
+pass it @args in the argument list.
+
+Rolls back the transaction if CODEREF dies; in which case the
+exception is re-thrown.
+
+Returns the results of CODEREF, either as a scalar or as a list
+depending on the context in which tx_do was called.
 
 Example:
 
@@ -225,13 +296,31 @@ Example:
          $storage->update( $marge );
       } );
 
-Both $homer and $marge will be updated, or none will, depending on whether the anonymous
-subroutine passed to tx_do() dies.
+Both $homer and $marge will be updated, or none will, depending on
+whether the anonymous subroutine passed to tx_do() dies.
+
+=head2 unload( @objs )
+
+Drops references to persistent objects present in memory. @objs may
+contain both objects and object ids. If @objs is empty, unloads all
+the objects loaded by this storage.
+
+Storage keeps track of all the persistent objects that are present in
+memory, in order to make sure that loading the same object twice
+results in a single copy of the object.
+
+As a consequence, these objects will not be reclaimed by Perl's
+automatic memory management mechanism until either disconnect() or
+unload() is called.
+
+reset() should be called only when no other references exist to
+persistent objects, otherwise the same object (in the database) may
+end up having two copies in transient storage.
 
 =head2 disconnect
 
-Disconnects from the database.
-Storages I<must> be explicitly disconnected or objects will be leaked.
+Disconnects from the database. Drops references to persistent
+objects present in memory (see L<unload>).
 
 =head1 INTERNAL CONNECTION
 

@@ -46,3 +46,42 @@ Revision history for Perl extension Tangram.
 1.05  Jan 03 2000 - interim version
 	- fixed: Storage::prefetch now works with inherited members
 	- fixed: _insert() ignored collections in stateless classes
+
+1.06  Feb 29 2000 - higly experimental interim version
+	- added typechecks on collection members
+	- started cleaning up autovivification of colls upon save
+	- documented like()
+	- documented extended select options retrieve, order & filter
+	- changed _limit into the Limit in test suite
+	- added temporary hack in Makefile.PL to support Access
+	- added mapping for flat arrays
+	- factorized code common to Array & FlatArray
+
+1.07  Feb 29 2000 - interim version
+	- adapted test suite for Sybase and other NULL-picky databases
+	- added experimental support for vendor extensions (Dialect)
+	- added skeleton Dialect::Sybase with support for datepart
+	- did extensive rework on Expr instantiation
+	- began documenting Type
+	- added Storage::reload()
+
+1.08  Mar 26 2000 - interim version
+	- batch allocation of object ids
+	- support for Lobs contributed by marian.kelc@ruhr-uni-bochum.de
+	- Storage::reset()
+
+1.09  ? - interim version
+	- String calls DBI for correct quoting, as Marian Kelc suggested
+	- fixed Array problem when removing elements from middle of collection
+	- (?)
+
+1.10  Apr 19 2000 - interim version
+	- changed reset() into unload() and added support for partial unloading
+	- tx_do() can now propagate arguments to closure/anon-sub;
+	  insert(), update() and erase() pass anon-subs to tx_do to prevent
+	  leaks (thanks Radu Greab)
+
+1.11
+	- ordering result set by descending order is now supported
+	- die() on attempt to load from an invalid id
+	- removed silly table id allocation limit (t1000) in Coll.pm

@@ -42,12 +42,9 @@ sub reschema
 
 sub query_expr
 {
-    my ($self, $obj, $memdefs, $tid) = @_;
-
-    map
-    {
-		Tangram::Expr->new("t$tid.$_", $self, $obj);
-    } keys %$memdefs;
+    my ($self, $obj, $memdefs, $tid, $storage) = @_;
+	my $dialect = $storage->{dialect};
+    return map { $dialect->expr($self, "t$tid.$_", $obj) } keys %$memdefs;
 }
 
 sub cols
@@ -84,7 +81,11 @@ sub save
 
     foreach my $member (keys %$members)
     {
-		push @$cols, $members->{$member}{col};
+		my $memdef = $members->{$member};
+
+		next if $memdef->{automatic};
+
+		push @$cols, $memdef->{col};
 		push @$vals, exists($obj->{$member}) && defined ($obj->{$member})
 			? $obj->{$member} : 'NULL';
     }
@@ -93,7 +94,6 @@ sub save
 package Tangram::Integer;
 
 use base qw( Tangram::Number );
-
 $Tangram::Schema::TYPES{int} = Tangram::Integer->new;
 
 package Tangram::Real;
@@ -108,19 +108,35 @@ use base qw( Tangram::Scalar );
 
 $Tangram::Schema::TYPES{string} = Tangram::String->new;
 
+sub quote
+{
+	my $val = shift;
+	return 'NULL' unless $val;
+	$val =~ s/'/''/g;	# 'emacs
+	return "'$val'";
+}
+
 sub save
 {
-    my ($self, $cols, $vals, $obj, $members) = @_;
+    my ($self, $cols, $vals, $obj, $members, $storage) = @_;
+
+	my $dbh = $storage->{db};
+
+	my $quote = $dbh->can('quote') ||
+		sub { my $val = $_[1]; $val =~ s/'/''/g; "'$val'" }; # 'emacs
 
     foreach my $member (keys %$members)
     {
-		push @$cols, $members->{$member}{col};
+		my $memdef = $members->{$member};
+
+		next if $memdef->{automatic};
+
+		push @$cols, $memdef->{col};
 
 		if (exists($obj->{$member}) && defined( my $val = $obj->{$member} ))
 		{
-			$val =~ s/'/''/g;	# 'emacs
-			push @$vals, "'$val'";
-		}
+			push @$vals, $quote->($dbh, $val);
+	    }
 		else
 		{
 			push @$vals, 'NULL';
@@ -130,8 +146,8 @@ sub save
 
 sub literal
 {
-    my ($self, $lit) = @_;
-    return "'$lit'";
+    my ($self, $lit, $storage) = @_;
+    return $storage->{db}->quote($lit);
 }
 
 1;

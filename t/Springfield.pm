@@ -6,13 +6,15 @@ use Tangram::RawDate;
 use Tangram::RawTime;
 use Tangram::RawDateTime;
 
+use Tangram::FlatArray;
+
 package Springfield;
 
 use vars qw( $schema @ISA @EXPORT );
 
 require Exporter;
 @ISA = qw( Exporter );
-@EXPORT = qw( optional_tests $schema );
+@EXPORT = qw( optional_tests $schema testcase leaktest );
 
 $schema = Tangram::Schema->new( {
 
@@ -21,8 +23,11 @@ $schema = Tangram::Schema->new( {
 
    sql =>
    {
-	   cid_size => 2
+	   cid_size => 2,
+	   
    },
+
+   class_table => 'Classes',
 								  
    classes =>
    {
@@ -41,7 +46,7 @@ $schema = Tangram::Schema->new( {
 	   {
 		string =>
 		{
-		 firstName => { sql => 'VARCHAR(40)' },
+		 firstName => undef,
 		 name => undef,
 		},
 
@@ -109,6 +114,8 @@ $schema = Tangram::Schema->new( {
 		  aggreg => 1,
 		 }
 		},
+
+		flat_array => [ qw( interests ) ],
 	   },
       },
 
@@ -131,7 +138,7 @@ $schema = Tangram::Schema->new( {
 
 	  ref =>
 	  {		
-	   manager => { null => 0 }
+	   manager => { null => 1 }
 	  },
 	 },
 	},
@@ -167,8 +174,8 @@ $schema = Tangram::Schema->new( {
 	{
 	 fields =>
 	 {
-	  #int => { limit => { col => '_limit' } },
-	  int => { limit => '_limit' },
+	  #int => { limit => { col => 'theLimit' } },
+	  int => { limit => 'theLimit' },
 	 }
 	},
 
@@ -212,7 +219,7 @@ sub connect_empty
    return $storage;
 }
 
-my $test;
+use vars qw( $test );
 
 sub begin_tests
 {
@@ -230,6 +237,8 @@ sub test
 	my ($fun, $file, $line) = caller;
 	print "$file($line) : error\n" unless $ok;
 }
+
+*testcase = \&test;
 
 sub leaktest
 {

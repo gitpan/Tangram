@@ -151,13 +151,25 @@ sub make_id
 {
     my ($self, $class_id) = @_;
 
-	my $schema = $self->{schema};
-    my $class_table = $schema->{class_table};
+	my $alloc_id = $self->{alloc_id} ||= {};
 
-    my $sql = "UPDATE $class_table SET lastObjectId = lastObjectId + 1 WHERE classId = $class_id";
-    $self->sql_do($sql);
-    my $cursor = $self->sql_cursor("SELECT lastObjectId from $class_table WHERE classId = $class_id", $self->{db});
-    sprintf "%d%0$self->{cid_size}d", $cursor->fetchrow(), $class_id;
+	my $id = $alloc_id->{$class_id};
+
+	if ($id)
+	{
+		$id = -$id if $id < 0;
+		$alloc_id->{$class_id} = ++$id;
+	}
+	else
+	{
+		my $table = $self->{schema}{class_table};
+		$self->sql_do("UPDATE $table SET lastObjectId = lastObjectId + 1 WHERE classId = $class_id");
+		$id = $self->sql_selectall_arrayref(
+	        "SELECT lastObjectId from $table WHERE classId = $class_id")->[0][0];
+		$alloc_id->{$class_id} = -$id;
+	}
+
+	return sprintf "%d%0$self->{cid_size}d", $id, $class_id;
 }
 
 sub unknown_classid
@@ -191,10 +203,29 @@ sub tx_commit
 
     carp $error_no_transaction unless @{ $self->{tx} };
 
-    $self->{db}->commit unless $self->{no_tx}
-		|| @{ $self->{tx} } > 1; # don't commit db if nested tx
+	# update lastObjectId's
 
-    pop @{ $self->{tx} };	# drop rollback subs
+	if (my $alloc_id = $self->{alloc_id})
+	{
+		my $table = $self->{schema}{class_table};
+
+		for my $class_id (keys %$alloc_id)
+		{
+			my $id = $alloc_id->{$class_id};
+			next if $id < 0;
+			$self->sql_do("UPDATE $table SET lastObjectId = $id WHERE classId = $class_id");
+		}
+
+		delete $self->{alloc_id};
+	}
+
+	unless ($self->{no_tx} || @{ $self->{tx} } > 1)
+	{
+		# committing outer tx: commit to db
+		$self->{db}->commit;
+	}
+
+    pop @{ $self->{tx} };		# drop rollback subs
 }
 
 sub tx_rollback
@@ -207,26 +238,26 @@ sub tx_rollback
 
     if ($self->{no_tx})
     {
-	pop @{ $self->{tx} };
+		pop @{ $self->{tx} };
     }
     else
     {
-	$self->{db}->rollback if @{ $self->{tx} } == 1; # don't rollback db if nested tx
+		$self->{db}->rollback if @{ $self->{tx} } == 1; # don't rollback db if nested tx
 
-	# execute rollback subs in reverse order
+		# execute rollback subs in reverse order
 
-	foreach my $rollback ( @{ pop @{ $self->{tx} } } )
-	{
-	    $rollback->($self);
-	}
+		foreach my $rollback ( @{ pop @{ $self->{tx} } } )
+		{
+			$rollback->($self);
+		}
     }
 }
 
 sub tx_do
 {
-    # public - execute closure inside tx
+    # public - execute subroutine inside tx
 
-    my ($self, $sub) = @_;
+    my ($self, $sub, @params) = @_;
 
     $self->tx_start();
 
@@ -237,11 +268,11 @@ sub tx_do
     {
 		if ($wantarray)
 		{
-			@results = $sub->();
+			@results = $sub->(@params);
 		}
 		else
 		{
-			$results = $sub->();
+			$results = $sub->(@params);
 		}
     };
 
@@ -279,6 +310,7 @@ sub insert
     my @ids = $self->tx_do(
 	   sub
 	   {
+		   my ($self, @objs) = @_;
 		   map
 		   {
 			   local %done = ();
@@ -287,7 +319,7 @@ sub insert
 			   $self->do_defered;
 			   $id;
 		   } @objs;
-	   } );
+	   }, $self, @objs );
 
     return wantarray ? @ids : shift @ids;
 }
@@ -297,7 +329,7 @@ sub _insert
     my ($self, $obj) = @_;
     my $schema = $self->{schema};
 
-    confess "$obj is already persistent, id = ", $self->id($obj) if $self->id($obj);
+    return $self->id($obj) if $self->id($obj);
 
     $done{$obj} = 1;
 
@@ -386,6 +418,7 @@ sub update
     $self->tx_do(
 		 sub
 		 {
+		     my ($self, @objs) = @_;
 		     foreach my $obj (@objs)
 		     {
 			 my $id = $self->id($obj) or confess "$obj must be persistent";
@@ -424,10 +457,8 @@ sub update
 					   } );
 
 			 $self->do_defered;
-		     }
-		 } );
-
-    @objs = ();			# MM
+		       }
+		   }, $self, @objs);
 }
 
 #############################################################################
@@ -457,14 +488,14 @@ sub erase
 {
     my ($self, @objs) = @_;
 
-    my $schema = $self->{schema};
-    my $classes = $self->{schema}{classes};
-
 	$self->tx_do(
         sub
 		{
-			#foreach my $obj (@objs) # causes memory leak??
-			while (my $obj = shift @objs)
+			my ($self, @objs) = @_;
+			my $schema = $self->{schema};
+			my $classes = $self->{schema}{classes};
+
+			foreach my $obj (@objs) # causes memory leak??
 			{
 				my $id = $self->id($obj) or confess "object $obj is not persistent";
 
@@ -505,7 +536,7 @@ sub erase
 						$self->{set_id}->($obj, $id);
 					} );
 			}
-		} );
+		}, $self, @objs );
 }
 
 sub do_defered
@@ -537,24 +568,29 @@ sub load
 
     return $self->{objects}{$id} if exists $self->{objects}{$id};
 
-    my $classId = int substr $id, -$self->{cid_size};
-    my $class = $self->{id2class}{$classId};
-    my $alias = Tangram::CursorObject->new($self, $class);
-    my $select = $alias->cols;
-    my $from = $alias->from;
-    my $where = join ' AND ', $alias->where, " t" . $alias->root_table . ".id = $id";
-    my $sql = "SELECT $select FROM $from WHERE $where";
-   
-    my $cursor = $self->sql_cursor($sql, $self->{db});
-    my @row = $cursor->fetchrow();
-    $cursor->close();
-   
-    splice @row, 0, 2; # id and classId
+    my $class = $self->{id2class}{ int(substr($id, -$self->{cid_size})) };
 
-    # in load   
-    my $obj = $self->read_object($id, $class, \@row, $alias->parts);
+	my ($row, $alias) = _fetch_object_state($self, $id, $class);
+
+    my $obj = $self->read_object($id, $class, $row, $alias->parts);
    
-    $self->{-residue} = \@row;
+    # ??? $self->{-residue} = \@row;
+   
+    return $obj;
+}
+
+sub reload
+{
+    my $self = shift;
+
+    return map { scalar $self->load( $_ ) } @_ if wantarray;
+
+	my $obj = shift;
+    my $id = $self->id($obj) or die "'$obj' is not persistent";
+    my $class = $self->{id2class}{ int(substr($id, -$self->{cid_size})) };
+
+	my ($row, $alias) = _fetch_object_state($self, $id, $class);
+    _row_to_object($self, $obj, $id, $class, $row, $alias->parts);
    
     return $obj;
 }
@@ -563,57 +599,110 @@ sub read_object
 {
     my ($self, $id, $class, $row, @parts) = @_;
 
-    #print "read_object $class: ", (join ' ', map { defined($_) ? $_ : 'undef' } @$row), "\n";
-
     my $schema = $self->{schema};
 
     my $obj = $schema->{make_object}->($class);
 
     unless (exists	$self->{objects}{$id})
     {
-	# do this only if object is not loaded yet
-	# otherwise we're just skipping columns in $row
-	$self->{set_id}->($obj, $id);
-	$self->{objects}{$id} = $obj;
-    }
-   
-    my $types = $schema->{types};
-
-    foreach my $class (@parts)
-    {
-	my $classdef = $schema->classdef($class);
-
-	foreach my $typetag (keys %{$classdef->{members}})
-	{
-	    my $members = $classdef->{members}{$typetag};
-	    $types->{$typetag}->read($row, $obj, $members, $self, $class);
-	}
+		# do this only if object is not loaded yet
+		# otherwise we're just skipping columns in $row
+		$self->{set_id}->($obj, $id);
+		$self->{objects}{$id} = $obj;
     }
 
-    $schema->visit_up($class,
-		      sub
-		      {
-			  my ($class) = @_;
-			  my $classdef = $schema->classdef($class);
-
-			  if ($classdef->{stateless})
-			  {
-			      my $types = $schema->{types};
-
-			      foreach my $typetag (keys %{$classdef->{members}})
-			      {
-				  my $members = $classdef->{members}{$typetag};
-				  $types->{$typetag}->read($row, $obj, $members, $self, $class);
-			      }
-			  }
-		      } );
+    _row_to_object($self, $obj, $id, $class, $row, @parts);
 
     return $obj;
 }
 
+sub _row_to_object
+{
+    my ($self, $obj, $id, $class, $row, @parts) = @_;
+
+    my $schema = $self->{schema};
+	my $classes = $schema->{classes};
+    my $types = $schema->{types};
+
+	my $cache = $self->{transfer_cache}{$class} ||= do
+	{
+		my @cache;
+
+		foreach my $class (@parts)
+		{
+			my $fields = $classes->{$class}{fields};
+
+			for my $typetag (keys %$fields)
+			{
+				my $type = $types->{$typetag};
+
+				push @cache,
+					[
+					 $type->can('read'), $type,
+					 $fields->{$typetag}, $class,
+					];
+			}
+		}
+
+		$schema->visit_up($class,
+		    sub
+			{
+				my $class = shift;
+				my $classdef = $classes->{$class};
+
+				if ($classdef->{stateless})
+				{
+					my $fields = $classdef->{fields};
+
+					foreach my $typetag (keys %$fields)
+					{
+						my $type = $types->{$typetag};
+
+						push @cache,
+							[
+							 $type->can('read'), $type,
+							 $fields->{$typetag}, $class,
+							];
+					}
+				}
+			} );
+
+		\@cache;
+	};
+
+	for my $transfer (@$cache)
+	{
+		my ($method, $type, $field, $class) = @$transfer;
+		$method->($type, $row, $obj, $field, $self, $class);
+	}
+
+	return $obj;
+}
+
+sub _fetch_object_state
+{
+    my ($self, $id, $class) = @_;
+
+    my $alias = Tangram::CursorObject->new($self, $class);
+    my $select = $alias->cols;
+    my $from = $alias->from;
+    my $where = join ' AND ', $alias->where, " t" . $alias->root_table . ".id = $id";
+    my $sql = "SELECT $select FROM $from WHERE $where";
+   
+    my $cursor = $self->sql_cursor($sql, $self->{db});
+    my $row = [ $cursor->fetchrow() ];
+    $cursor->close();
+
+	die "no object with id '$id'" unless @$row;
+   
+    splice @$row, 0, 2; # id and classId
+
+	return ($row, $alias);
+}
+
 sub select
 {
-    carp "valid only in list context" unless wantarray;
+    croak "valid only in list context" unless wantarray;
     my ($self, $class, @args) = @_;
     my $cursor = Tangram::Cursor->new($self, $class, $self->{db});
     $cursor->select(@args);
@@ -776,11 +865,13 @@ use base qw( Tangram::AbstractStorage );
 
 sub connect
 {
-    my ($pkg, $schema, $cs, $user, $pw) = @_;
+    my ($pkg, $schema, $cs, $user, $pw, $opts) = @_;
 
     my $self = $pkg->new;
 
-    my $db = DBI->connect($cs, $user, $pw);
+	$opts ||= {};
+
+    my $db = $opts->{dbh} || DBI->connect($cs, $user, $pw);
 
     eval { $db->{AutoCommit} = 0 };
 
@@ -792,6 +883,9 @@ sub connect
 
 	$self->{cid_size} = $schema->{sql}{cid_size};
 
+	my $dialect = $opts->{dialect} || 'Tangram::Dialect';
+	$self->{dialect} = ref($dialect) ? $dialect : $dialect->new();
+	
     $self->_open($schema);
 
     return $self;
@@ -802,6 +896,21 @@ sub sql_do
     my ($self, $sql) = @_;
     print $Tangram::TRACE "$sql\n" if $Tangram::TRACE;
     $self->{db}->do($sql) or croak $DBI::errstr;
+}
+
+sub sql_selectall_arrayref
+{
+    my ($self, $sql, $dbh) = @_;
+    print $Tangram::TRACE "$sql\n" if $Tangram::TRACE;
+	($dbh || $self->{db})->selectall_arrayref($sql);
+}
+
+sub sql_prepare
+{
+    my ($self, $sql, $connection) = @_;
+    confess unless $connection;
+    print $Tangram::TRACE "$sql\n" if $Tangram::TRACE;
+    return $connection->prepare($sql) or die;
 }
 
 sub sql_cursor
@@ -819,6 +928,54 @@ sub sql_cursor
 				     connection => $connection );
 }
 
+sub unload
+{
+	my $self = shift;
+
+	my $objects = $self->{objects};
+	my $set_id = $self->{set_id};
+
+	if (@_)
+	{
+		my $prefetch = $self->{PREFETCH};
+
+		for my $arg (@_)
+		{
+			my $id;
+
+			if (ref $arg)
+			{
+				$id = $self->id($arg);
+				$set_id->($arg, undef);
+			}
+			else
+			{
+				$id = $arg;
+				$set_id->($objects->{$arg}, undef);
+			}
+
+			delete $objects->{$id};
+			delete $prefetch->{$id};
+		}
+	}
+	else
+	{
+		for my $obj (keys %$objects)
+		{
+			$set_id->($obj, undef);
+			delete $self->{objects}
+		}
+
+		delete $self->{objects};
+		delete $self->{ids};
+		delete $self->{PREFETCH};
+	}
+
+	undef($objects);
+}
+
+*reset = \&unload; # deprecated, use unload() instead
+
 sub DESTROY
 {
     my $self = shift;
@@ -835,12 +992,7 @@ sub new
 
 sub fetchrow
 {
-    my $self = shift;
-    return $self->{statement}->fetchrow;
-   
-    my @row = $self->{statement}->fetchrow;
-    print '*** ', join(' ', @row), "\n";
-    @row;
+    return shift->{statement}->fetchrow;
 }
 
 sub close
