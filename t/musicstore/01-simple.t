@@ -159,12 +159,16 @@ is($CD::c, 0, "no objects leaked");
 
     # 7. fetch unique CD records by matching on a partial artist's
     #    *or* partial CD name, using a cursor if possible.
-    my $query = $r_cd->{title}->upper()->like(uc("%beat%"));
+    my $query =
+	( $r_artist->{name}->upper()->like(uc("%beat%"))
+	  | $r_cd->{title}->upper()->like(uc("%beat%")) );
+
     my $filter = $join & $query;
     my $cursor = $storage->cursor ( $r_cd, $filter );
 
     my @cds=();
     while ( my $cd = $cursor->current ) {
+	diag ("found cd = " .$cd->title.", artist = ".$cd->artist->name);
 	push @cds, $cd;
 	$cursor->next;
     }
@@ -175,6 +179,9 @@ is($CD::c, 0, "no objects leaked");
 is($CD::c, 0, "no objects leaked");
 
 {
+    #use YAML;
+    #local($Tangram::TRACE) = \*STDERR;
+    #local($Tangram::DEBUG_LEVEL) = 3;
     # 8. update a record or two
     my ($pfloyd) = $storage->select
 	( $r_artist,

@@ -340,3 +340,11 @@ Revision history for Perl extension Tangram.
 	- much more documentation, including Tangram::Intro
 	- reworked the test suite to have multiple sections
 	- new test section for Object Persistathon (musicstore schema)
+
+2.07_08
+	- Tangram::Dump now checks (via $storage->id_maybe_insert())
+	  whether objects that it is saving should be inserted to the
+	  DB first.
+
+2.08 26 Mar 2005
+	- Release this version with a couple of minor bugfixes
