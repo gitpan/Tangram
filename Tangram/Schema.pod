@@ -1,0 +1,435 @@
+=head1 NAME
+
+Tangram::Schema
+
+=head1 SYNOPSIS
+
+   use Tangram;
+
+   $schema = Tangram::Schema->new( %hash );
+
+   use Tangram::Deploy;
+   $schema->deploy( \*FILE );
+   
+
+=head1 DESCRIPTION
+
+A Schema defines a mapping between a system of classes and a relational database.
+
+=head1 CLASS METHODS
+
+=head2 new( %h )
+
+Returns a new Schema object. %h contains a description of the system of classes to map.
+
+The Schema object becomes the owner of the hash, which can no longer be modified nor reused
+by client code.
+
+=head1 INSTANCE METHODS
+
+=head2 deploy( FILEHANDLE )
+
+Writes SQL statements to FILEHANDLE.
+The resulting SQL code prepares an empty database for use with this Schema.
+
+If FILEHANDLE is omitted, deploy() writes to STDOUT.
+
+Note that method deploy() must be explicitly loaded via a C<use Tangram::Deploy> directive.
+
+=head1 SCHEMA HASH
+
+Currently the Schema hash has only one documented entry:
+
+=over 4
+
+=item *
+
+classes => L<class dictionary>
+
+=back
+
+=head2 Class dictionary
+
+The class dictionary is a hash that associates class names to L<class description>s.
+It contains one entry per persistent class in a database.
+
+Example:
+
+   $schema = Tangram::Schema->new(
+      classes =>
+      {
+         Person =>
+         {
+            # class description
+         },
+
+         NaturalPerson =>
+         {
+            # class description
+         },
+
+         LegalPerson =>
+         {
+            # class description
+         },
+
+         # etc etc etc
+
+      } );
+
+=head2 Class description
+
+A class description is a hash that contains all the information necessary for mapping
+the objects of a given class. It has the following entries:
+
+=over 4
+
+=item *
+
+table => L<table name>
+
+=item *
+
+abstract => L<abstract specifier>
+
+=item *
+
+bases => L<base array>
+
+=item *
+
+members => L<member dictionary>
+
+=back
+
+All fields are optional.
+
+Currently Tangram uses one table per class. The table does not contain the attributes inherited
+from base classes. Consequently an object usually spans several tables. A future release will
+provide more flexibility in the mapping.
+
+=head3 table name
+
+The C<table> field in the class hash contains the name of the table that correspond to the class.
+In the absence of this field, the table has the same name as the class. If the class name is a
+SQL reserved word, the C<table> field can be used to specify a different name.
+
+Example:
+
+   $schema = Tangram::Schema->new(
+      classes =>
+      {
+         Person =>
+         {
+            # no 'table' field - table will be named 'Person'
+         },
+
+         Identity =>
+         {
+            table => 'IdentityInfo', # Identity is not a valid table name
+            ...
+         },
+      } );
+
+=head3 abstract specifier
+
+The C<abstract> field in the L<class description> hash should be set to C<true> is the
+class is abstract. Tangram will not waste time attempting to retrieve objects of this exact
+type since none exists - in theory.
+
+Example:
+
+   $schema = Tangram::Schema->new(
+      classes =>
+      {
+         Shape =>
+         {
+            abstract => 1,
+            ...
+         },
+      } );
+
+=head3 base array
+
+The C<bases> field in the L<class description> contains a reference to an array of base class names.
+When an object of this type (or of a derived type) will be loaded, the state pertaining to its
+base classes will be loaded as well.
+
+Tangram also uses this field to compute the derivation tree of each class and implement polymorphism.
+
+=head2 member dictionary
+
+The member hash contains one (optional) entry per possible member type. The value associated
+to each entry describes all the members of that type. Its exact format depends on the type.
+
+Currently the possible entries are:
+
+=over 4
+
+=item *
+
+string => L<scalar members>
+
+=item *
+
+int => L<scalar members>
+
+=item *
+
+real => L<scalar members>
+
+=item *
+
+ref => L<scalar members>
+
+=item *
+
+array => L<array members>
+
+=item *
+
+iarray => L<iarray members>
+
+=item *
+
+set => L<set members>
+
+=item *
+
+iset => L<iset members>
+
+=back
+
+=head3 scalar members
+
+Strings. integers, reals and references are collectively called 'scalar members'.
+Attributes of scalar types occupy a single column on the class' corresponding table.
+They can be specified either as an array of member names or as a hash.
+If the array form is used, the name of the column is the name of the member.
+The hash form associates member names to column names.
+
+Example:
+
+      $schema = Tangram::Schema->new(
+         classes =>
+         {
+            Person =>
+            {
+               int      => [ qw( age ) ],
+               strings  => { name => 'name', where => 'where_col' },
+            },
+         } );
+
+Note that we must use the hash form because 'where' is not a valid column name.
+
+=head3 Collections
+
+=head4 Array or set?
+
+Currently Tangram supports two collection types: plain Perl arrays and Set::Object.
+More collections will be added in the future.
+
+=head4 Extrusive or intrusive?
+
+Tangram supports offers two options for mapping the standard collections: 'extrusive' and 'intrusive'.
+
+The extrusive mapping uses an intermediate table (often called a 'link' table) to store the state
+of the collection. Each row in that table contains two foreign keys: one pointing to the
+containing object, and one pointing to the element. Extra columns contain collection-specific
+data, like the position of the element in the case of a Perl array. This mapping is ideal
+for representing many-to-many relationships.
+
+The intrusive mapping stores the collection data in the element's table. It adds at least one column,
+which contains a foreign key that points to the containing object. Again, extra columns may be
+needed to host additional information if the collection requires it. This mapping is typically used
+to map one-to-many relationships.
+
+Note that the intrusive mapping does not allow the same object to be contained in the same collection
+in two different objects. Consider the following code:
+
+   $homer->{children} = [ $bart ];
+   $marge->{children} = [ $bart ];
+   $storage->insert( $homer, $marge );
+
+This is okay if C<children> uses the extrusive mapping. Otherwise, Tangram will silently make
+Marge the sole parent of Bart.
+
+Also note that the intrusive mapping is not always the best way to map a one-to-many relationship.
+It consumes at least one column per collection, even for objects that are not part of any collection.
+
+=head4 array members
+
+Maps Perl arrays in a non-intrusive fashion.
+
+The array hash contains one entry per persistent member of array type. The associated value
+can be either the class of the elements, or a hash containing the following entries:
+
+=over 4
+
+=item *
+
+class => the class of the elements
+
+=item *
+
+table => the name of the intermediate table
+
+=back
+
+If the short form is used, Tangram computes a default table name.
+
+Example:
+
+   $schema = Tangram::Schema->new(
+      classes =>
+      {
+         NaturalPerson =>
+         {
+            members =>
+            {
+               array =>
+               {
+                  children => 'NaturalPerson',
+                  
+                  colleagues =>
+                  {
+                     class => 'NaturalPerson',
+                     table => 'NCC1701'
+                  }
+               },
+         },
+      } );
+
+=head4 iarray members
+
+Maps Perl arrays in an intrusive fashion.
+
+The iarray hash contains one entry per persistent member of array type. The associated value
+can be either the class of the elements, or a hash containing the following entries:
+
+=over 4
+
+=item *
+
+class => the class of the elements
+
+=item *
+
+coll => the name of the column on the element's table containing the foreign key to the
+containing object
+
+=item *
+
+slot => the name of the column on the element's table containing the position of the element
+in the collection
+
+=back
+
+Example:
+
+   $schema = Tangram::Schema->new(
+      classes =>
+      {
+         NaturalPerson =>
+         {
+            members =>
+            {
+               iarray =>
+               {
+                  hobbies => 'Hobby',
+                  
+                  opinions =>
+                  {
+                     class => 'Opinion',
+                     coll => 'beholder',
+                     slot => 'opinion_ix'
+                  }
+               },
+         },
+      } );
+
+=head4 set members
+
+Maps Set::Object in a non-intrusive fashion.
+
+The set hash contains one entry per persistent member of Set::Object.
+The associated value can be either the class of the elements,
+or a hash containing the following entries:
+
+=over 4
+
+=item *
+
+class => the class of the elements
+
+=item *
+
+table => the name of the intermediate table
+
+=back
+
+If the short form is used, Tangram computes a default table name.
+
+Example:
+
+   $schema = Tangram::Schema->new(
+      classes =>
+      {
+         NaturalPerson =>
+         {
+            members =>
+            {
+               set =>
+               {
+                  children => 'NaturalPerson',
+                  
+                  colleagues =>
+                  {
+                     class => 'NaturalPerson',
+                     table => 'NCC1701'
+                  }
+               },
+         },
+      } );
+
+=head4 iset members
+
+Maps Set::Object in an intrusive fashion.
+
+The iset hash contains one entry per persistent member of array type. The associated value
+can be either the class of the elements, or a hash containing the following entries:
+
+=over 4
+
+=item *
+
+class => the class of the elements
+
+=item *
+
+coll => the name of the column on the element's table containing the foreign key to the
+containing object
+
+=back
+
+Example:
+
+   $schema = Tangram::Schema->new(
+      classes =>
+      {
+         NaturalPerson =>
+         {
+            members =>
+            {
+               iset =>
+               {
+                  hobbies => 'Hobby',
+                  
+                  opinions =>
+                  {
+                     class => 'Opinion',
+                     coll => 'beholder',
+                  }
+               },
+         },
+      } );
