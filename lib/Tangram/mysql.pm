@@ -1,4 +1,4 @@
-# (c) Sound Object Logic 2000-2001
+
 
 use strict;
 use Tangram::Core;
@@ -53,6 +53,11 @@ sub drop_sequence_sql {
     my $self = shift if ref $_[0] and UNIVERSAL::isa($_[0], __PACKAGE__);
     my $sequence_name = shift;
     return "DROP TABLE seq_$sequence_name";
+}
+
+sub limit_sql {
+    my $self = shift;
+    return (limit => shift);
 }
 
 package Tangram::mysql::Storage;

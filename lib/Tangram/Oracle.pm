@@ -1,9 +1,9 @@
-# (c) Sound Object Logic 2000-2001
+
+
+package Tangram::Oracle;
 
 use strict;
 use Tangram::Core;
-
-package Tangram::Oracle;
 
 use vars qw(@ISA);
  @ISA = qw( Tangram::Relational );
@@ -45,27 +45,40 @@ sub to_date {
 sub from_blob { $_[1] }
 sub to_blob { $_[1] }
 
+sub limit_sql {
+    my $self = shift;
+    my $spec = shift;
+    if ( ref $spec ) {
+	die unless ref $spec eq "ARRAY";
+	die "Oracle cannot handle two part limits"
+	    unless $spec->[0] eq "0";
+	$spec = pop @$spec;
+    }
+    return (postfilter => ["rownum <= $spec"]);
+}
+
 package Tangram::Oracle::Storage;
 
 use Tangram::Storage;
 use vars qw(@ISA);
  @ISA = qw( Tangram::Storage );
 
-sub connect
+sub open_connection
 {
-    my $class = shift;
+    my $self = shift;
 
-    my $self = $class->SUPER::connect(@_);
+    my $db = $self->SUPER::open_connection(@_);
 
     # Oracle doesn't really have a default date format (locale
     # dependant), so adjust it to use ISO-8601.
-    $self->{db}->do
+    $db->do
 	("ALTER SESSION SET NLS_DATE_FORMAT='YYYY-MM-DD\"T\"HH24:MI:SS'");
-    $self->{db}->do
+    $db->do
 	("ALTER SESSION SET CONSTRAINTS = DEFERRED");
-    $self->{db}->{RaiseError} = 1;
-    $self->{db}->{LongTruncOk} = 1;
-    return $self;
+    $db->{RaiseError} = 1;
+    $db->{LongTruncOk} = 0;
+    $db->{LongReadLen} = 1024*1024;
+    return $db;
 }
 
 

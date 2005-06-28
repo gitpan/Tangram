@@ -1,4 +1,4 @@
-# (c) Sound Object Logic 2000-2001
+
 
 use strict;
 
@@ -261,7 +261,13 @@ sub new
 sub and
 {
 	my ($self, $other) = @_;
-	return op($self, 'AND', 10, $other);
+	if ( !ref $other and $other == 1 ) {
+	    $self;
+	} elsif ( !ref $self and $self == 1 ) {
+	    $other;
+	} else {
+	    op($self, 'AND', 10, $other);
+	}
 }
 
 sub and_perhaps
@@ -607,7 +613,7 @@ sub binop
 	}
 	else
 	{
-		$op = $op eq '=' ? 'IS' : $op eq '<>' ? 'IS NOT' : Carp::confess;
+		$op = $op eq '=' ? 'IS' : $op eq '<>' ? 'IS NOT' : Carp::confess("unknown op $op");
 		$arg = 'NULL';
 	}
 
@@ -658,7 +664,7 @@ sub in
 	my $storage = $self->{storage};
 
 	my @items;
-	while ( my $item = shift ) {
+	while ( defined(my $item = shift) ) {
 	    if ( ref $item eq "ARRAY" ) {
 		push @items, @$item;
 	    } elsif ( UNIVERSAL::isa($item, "Set::Object") ) {
