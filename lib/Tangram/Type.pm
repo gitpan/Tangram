@@ -1,6 +1,9 @@
-package Tangram::Type;
+
 
 use strict;
+
+package Tangram::Type;
+
 use Carp;
 
 my %instances;
@@ -11,10 +14,7 @@ sub instance
 	return $instances{$pkg} ||= bless { }, $pkg;
 }
 
-sub new {
-    my $inv = shift;
-    return $inv->instance(@_);
-}
+*new = \&instance;
 
 sub reschema
 {
@@ -88,6 +88,5 @@ sub get_export_cols
 
 sub get_intrusions {
 }
-
 
 1;

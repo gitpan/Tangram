@@ -1,32 +1,16 @@
-package Tangram::Storage;
+
 
 use strict;
 
-use Tangram::Storage::Statement;
-
+package Tangram::Storage;
 use DBI;
 use Carp;
 use Tangram::Core;
+use Scalar::Util qw(weaken refaddr);
 
 use vars qw( %storage_class );
 
 BEGIN {
-    eval 'use Scalar::Util qw()';
-    if ($@) {
-	*Tangram::refaddr = sub { (shift) + 0 };
-	eval 'use WeakRef';
-	if ($@) {
-	    *Tangram::weaken = sub { };
-	    $Tangram::no_weakrefs = 1;
-	} else {
-	    *Tangram::weaken = \&WeakRef::weaken;
-	    $Tangram::no_weakrefs = 0;
-	}
-    } else {
-	*Tangram::weaken = \&Scalar::Util::weaken;
-	*Tangram::refaddr = \&Scalar::Util::refaddr;
-	$Tangram::no_weakrefs = 0;
-    }
     *pretty = *Tangram::Core::pretty;
 }
 
@@ -178,28 +162,32 @@ sub _open
 		}
 	  }
 	  if ($id) {
-	    $self->{ids}{Tangram::refaddr($obj)} = $id;
+	    $self->{ids}{refaddr($obj)} = $id;
 	  } else {
-	    delete $self->{ids}{Tangram::refaddr($obj)};
+	    delete $self->{ids}{refaddr($obj)};
 	  }
 	};
 
     $self->{get_id} = $schema->{get_id} || sub {
 	  my $obj = shift or warn "no object passed to get_id";
 	  ref $obj or return undef;
-	  my $address = Tangram::refaddr($obj)
+	  my $address = refaddr($obj)
 	      or do { warn "Object $obj has no refaddr(?)";
 		      return undef };
 	  my $id = $self->{ids}{$address};
+	  # refaddr's can be re-used, but weakrefs are magic :-)
+	  if ( $id and !defined $self->{objects}{$id} ) {
+	      delete $self->{ids}{$address};
+	      delete $self->{objects}{$id};
+	      $id = undef;
+	  } elsif ( $id and refaddr($self->{objects}{$id}) != $address ) {
+	      delete $self->{ids}{$address};
+	      $id = undef;
+	  }
 	  if ($Tangram::TRACE && ($Tangram::DEBUG_LEVEL > 2)) {
 		print $Tangram::TRACE "Tangram: $obj is ".($id?"oid $id" : "not in storage")."\n";
 	  }
-	  return undef unless $id;
-	  # refaddr's can be re-used, but weakrefs are magic :-)
-	  return $id if defined($self->{objects}{$id});
-	  delete $self->{ids}{$address};
-	  delete $self->{objects}{$id};
-	  return undef;
+	  return $id;
 	};
 
     return $self;
@@ -278,7 +266,7 @@ sub my_cursor
 sub select_data
 {
     my $self = shift;
-    Tangram::Expr::Select->new(@_)->execute($self, $self->open_connection());
+    Tangram::Select->new(@_)->execute($self, $self->open_connection());
 }
 
 sub selectall_arrayref
@@ -289,7 +277,7 @@ sub selectall_arrayref
 sub my_select_data
 {
     my $self = shift;
-    Tangram::Expr::Select->new(@_)->execute($self, $self->{db});
+    Tangram::Select->new(@_)->execute($self, $self->{db});
 }
 
 my $psi = 1;
@@ -975,7 +963,7 @@ sub welcome
     my ($self, $obj, $id) = @_;
     $self->{set_id}->($obj, $id);
 
-    Tangram::weaken( $self->{objects}{$id} = $obj );
+    weaken( $self->{objects}{$id} = $obj );
   }
 
 sub goodbye
@@ -1108,13 +1096,13 @@ sub select {
 sub cursor_object
   {
     my ($self, $class) = @_;
-    $self->{IMPLICIT}{$class} ||= Tangram::Expr::RDBObject->new($self, $class)
+    $self->{IMPLICIT}{$class} ||= Tangram::RDBObject->new($self, $class)
 }
 
 sub query_objects
 {
     my ($self, @classes) = @_;
-    map { Tangram::Expr::QueryObject->new(Tangram::Expr::RDBObject->new($self, $_)) } @classes;
+    map { Tangram::QueryObject->new(Tangram::RDBObject->new($self, $_)) } @classes;
 }
 
 sub remote
@@ -1146,9 +1134,9 @@ sub aggregate
     do {
 	$filter = $expr;
 	$expr = Tangram::Expr->new
-	    (Tangram::Type::Number->instance,
+	    (Tangram::Number->instance,
 	     '*', $filter->objects);
-    } if $expr->isa("Tangram::Expr::Filter");
+    } if $expr->isa("Tangram::Filter");
 
     my @data = $self->select(undef,
 			     ($filter ? (filter => $filter) : ()),
@@ -1530,6 +1518,31 @@ sub DESTROY
     } else {
 	print $Tangram::TRACE __PACKAGE__.": destroyed; no active handle\n"
 	    if $Tangram::TRACE;
+    }
+}
+
+package Tangram::Storage::Statement;
+
+sub new
+{
+    my $class = shift;
+    bless { @_ }, $class;
+}
+
+sub fetchrow
+{
+    return shift->{statement}->fetchrow;
+}
+
+sub close
+{
+    my $self = shift;
+
+    if ($self->{storage})
+    {
+	$self->{statement}->finish;
+	$self->{storage}->close_connection($self->{connection});
+	%$self = ();
     }
 }
 

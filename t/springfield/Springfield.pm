@@ -2,7 +2,7 @@ use strict;
 
 use lib "t";
 
-use Tangram qw(:compat_quiet);
+use Tangram;
 
 use Tangram::RawDate;
 use Tangram::RawTime;
@@ -18,7 +18,7 @@ package Springfield;
 use Exporter;
 use vars qw(@ISA @EXPORT @EXPORT_OK %id @kids @opinions $no_date_manip);
 
-eval 'use Tangram::Type::Date::Manip';
+eval 'use Tangram::DMDateTime';
 
 $no_date_manip = $@;
 
@@ -556,14 +556,15 @@ sub stdpop
 
 package SpringfieldObject;
 
-use vars qw( $pop );
+use vars qw( $pop $VERBOSE );
 
 sub new
 {
    my $pkg = shift;
    ++$pop;
    my $foo = bless { $pkg->defaults, @_ }, $pkg;
-   #print STDERR "I am alive!  $foo\n";
+   print STDERR "# I am alive!  $foo\n"
+       if $VERBOSE;
    return $foo;
 }
 
@@ -575,7 +576,8 @@ sub defaults
 sub DESTROY
 {
 #   die if exists shift->{id};
-    #print STDERR "I am dying!  $_[0]\n";
+    print STDERR "# I am dying!  $_[0]\n"
+	if $VERBOSE;
    --$pop;
 }
 

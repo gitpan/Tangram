@@ -9,7 +9,6 @@ use Data::Dumper;
 use lib "t/springfield";
 use Springfield;
 use Set::Object qw(is_overloaded blessed);
-use Tangram::Type::Dump qw(flatten unflatten);
 
 my $homer_id;
 
@@ -43,11 +42,11 @@ my $homer_id;
 		     #cheese => \\$marge,
 		     #bananas => Set::Object->new($homer, $marge),
 		    };
-    flatten($storage, $structure);
+    Tangram::Dump::flatten($storage, $structure);
     is(ref $structure->{hello}, "Tangram::Memento",
        "blessed object removed - 1");
 
-    unflatten($storage, $structure);
+    Tangram::Dump::unflatten($storage, $structure);
     is($structure->{hello}, $homer, "unflatten - 1");
 
     $structure = {
@@ -57,12 +56,12 @@ my $homer_id;
 		     #cheese => \\$marge,
 		     #bananas => Set::Object->new($homer, $marge),
 		    };
-    flatten($storage, $structure);
+    Tangram::Dump::flatten($storage, $structure);
     is(ref $structure->{hello}, "Tangram::Memento",
        "blessed object removed - 2a");
     is(ref $structure->{baz}->[2], "Tangram::Memento",
        "blessed object removed - 2b");
-    unflatten($storage, $structure);
+    Tangram::Dump::unflatten($storage, $structure);
     is($structure->{hello}, $homer, "unflatten - 2a");
     is($structure->{baz}->[2], $homer, "unflatten - 2b");
 
@@ -72,14 +71,14 @@ my $homer_id;
 		     baz => [ qw(frop quux), $homer ],
 		     cheese => \\$marge,
 		    };
-    flatten($storage, $structure);
+    Tangram::Dump::flatten($storage, $structure);
     is(ref $structure->{hello}, "Tangram::Memento",
        "blessed object removed - 3a");
     is(ref $structure->{baz}->[2], "Tangram::Memento",
        "blessed object removed - 3b");
     is(ref ${${$structure->{cheese}}}, "Tangram::Memento",
        "blessed object removed - 3c");
-    unflatten($storage, $structure);
+    Tangram::Dump::unflatten($storage, $structure);
     is($structure->{hello}, $homer, "unflatten - 3a");
     is($structure->{baz}->[2], $homer, "unflatten - 3b");
     is(${${$structure->{cheese}}}, $marge, "unflatten - 3c");
@@ -91,13 +90,13 @@ my $homer_id;
 		  cheese => \\$marge,
 		  bananas => Set::Object->new($homer, $marge),
 		 };
-    flatten($storage, $structure);
+    Tangram::Dump::flatten($storage, $structure);
     isnt(ref $structure->{bananas}, "Set::Object",
 	 "Set::Object's replaced");
     ###my $x = dispel_overload($structure->{bananas});
     #isnt($x, 1, "no AMAGIC bits leaked");
 
-    unflatten($storage, $structure);
+    Tangram::Dump::unflatten($storage, $structure);
     is(ref $structure->{bananas}, "Set::Object",
        "unflatten Set::Object (container)");
     is($structure->{bananas}->size, 2,
