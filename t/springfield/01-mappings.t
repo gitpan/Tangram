@@ -1,12 +1,8 @@
-#  -*- cperl-mode -*-
-
 use strict;
-
 use lib 't/springfield';
-
 use Springfield;
 
-use Test::More tests => 70;
+begin_tests(40);
 
 package Vehicle;
 
@@ -48,106 +44,79 @@ package main;
 
 sub check
   {
-	my ($storage, $test_name, $class, @states) = @_;
-	my @objs;
-	eval {
-	    @objs = $storage->select($class);
-	};
-	is($@, "", "$test_name: selecting $class objects doesn't die");
-	is(@objs, @states, "$test_name: correct # of $class objects");
+	my ($storage, $class, @states) = @_;
+	my @objs = $storage->select($class);
+	Springfield::test(@objs == @states);
 
 	if (@objs == @states) {
 	  my %states;
 	  @states{ @states } = ();
 	  delete @states{ map { $_->state } @objs };
-	  is(keys %states, 0, "$test_name: objects correspond exactly");
+	  Springfield::test(!keys %states);
 	} else {
-	SKIP:{
-		skip("$test_name: carried error", 1);
-	    }
+	  Springfield::test(0);
 	}
   }
 
 sub test_mapping
   {
 	my ($v, $b, $p, $h) = @_;
-
-	my $test_name = "$v$b$p$h";
 	
-	my $schema = Tangram::Relational->schema
-	    ( {
-	       control => 'Vehicles',
+	my $schema = Tangram::Relational
+	  ->schema( {
+				 control => 'Vehicles',
 
-	       classes =>
-	       [
-		Vehicle =>
-		{
-		 table => $v,
-		 abstract => 1,
-		 fields => { string => [ 'name' ] }
-		},
+				 classes =>
+				  [
+				   Vehicle =>
+				   {
+					table => $v,
+					abstract => 1,
+					fields => { string => [ 'name' ] }
+				   },
+				   
+				   Boat =>
+				   {
+					table => $b,
+					bases => [ qw( Vehicle ) ],
+					fields => { int => [ 'knots' ] },
+				   },
+				   
+				   Plane =>
+				   {
+					table => $p,
+					bases => [ qw( Vehicle ) ],
+					fields => { int => [ 'altitude' ] },
+				   },
+				   
+				   HydroPlane =>
+				   {
+					table => $h,
+					bases => [ qw( Boat Plane ) ],
+					fields => { string => [ 'whatever' ] },
+				   },
+				  ] } );
 
-		Boat =>
-		{
-		 table => $b,
-		 bases => [ qw( Vehicle ) ],
-		 fields => { int => [ 'knots' ] },
-		},
+	my $dbh = DBI->connect($Springfield::cs, $Springfield::user, $Springfield::passwd, { PrintError => 0 });
+	# $Tangram::TRACE = \*STDOUT;
+	eval { $Springfield::dialect->retreat($schema, $dbh) };
+	$Springfield::dialect->deploy($schema, $dbh);
+	$dbh->disconnect();
 
-		Plane =>
-		{
-		 table => $p,
-		 bases => [ qw( Vehicle ) ],
-		 fields => { int => [ 'altitude' ] },
-		},
+	my $storage = Springfield::connect($schema);
 
-		HydroPlane =>
-		{
-		 table => $h,
-		 bases => [ qw( Boat Plane ) ],
-		 fields => { string => [ 'whatever' ] },
-		},
-	       ] } );
+	# use Data::Dumper;	print Dumper $storage->{engine}->get_polymorphic_select($schema->classdef('Boat'));	die;
+	# my $t = HydroPlane->make(qw(Hydro 5 200 foo)); print Dumper $t; die;
 
-	use YAML;
-	#diag(Dump $schema);
+	$storage->insert( Boat->make(qw( Erika 2 )), Plane->make(qw( AF-1 20000 )), HydroPlane->make(qw(Hydro 5 200 foo)) );
 
-    SKIP: {
-	    my $dbh = DBI->connect($Springfield::cs, $Springfield::user,
-				   $Springfield::passwd, { PrintError => 0 });
+	check($storage, 'Boat', 'Boat Erika 2', 'HydroPlane Hydro 5 200 foo');
+	check($storage, 'Plane', 'Plane AF-1 20000', 'HydroPlane Hydro 5 200 foo');
+	check($storage, 'HydroPlane', 'HydroPlane Hydro 5 200 foo');
+	check($storage, 'Vehicle', 'Boat Erika 2', 'Plane AF-1 20000', 'HydroPlane Hydro 5 200 foo');
 
-	    # $Tangram::TRACE = \*STDOUT;
-	    eval { $Springfield::dialect->retreat($schema, $dbh) };
-
-	    eval { $Springfield::dialect->deploy($schema, $dbh); };
-	    is($@, "", "$test_name: deploy succeeded")
-		or skip "$test_name: deploy failed", 13;
-	    $dbh->disconnect();
-
-	    my $storage = Springfield::connect($schema);
-
-	    # use Data::Dumper;	print Dumper $storage->{engine}->get_polymorphic_select($schema->classdef('Boat'));	die;
-	    # my $t = HydroPlane->make(qw(Hydro 5 200 foo)); print Dumper $t; die;
-
-	    eval {
-		$storage->insert( Boat->make(qw( Erika 2 )),
-				  Plane->make(qw( AF-1 20000 )),
-				  HydroPlane->make(qw(Hydro 5 200 foo)) );
-	    };
-	    is($@, "", "$test_name: Inserting objects doesn't die");
-
-	    check($storage, $test_name,
-		  'Boat', 'Boat Erika 2', 'HydroPlane Hydro 5 200 foo');
-	    check($storage, $test_name,
-		  'Plane', 'Plane AF-1 20000', 'HydroPlane Hydro 5 200 foo');
-	    check($storage, $test_name,
-		  'HydroPlane', 'HydroPlane Hydro 5 200 foo');
-	    check($storage, $test_name,
-		  'Vehicle', 'Boat Erika 2', 'Plane AF-1 20000',
-		  'HydroPlane Hydro 5 200 foo');
-
-	    $storage->disconnect();
-	}
+	$storage->disconnect();
+					 
   }
 
 test_mapping('V', 'V', 'V', 'V');

@@ -1,9 +1,8 @@
-package Tangram::Storage;
+
 
 use strict;
 
-use Tangram::Storage::Statement;
-
+package Tangram::Storage;
 use DBI;
 use Carp;
 use Tangram::Core;
@@ -267,7 +266,7 @@ sub my_cursor
 sub select_data
 {
     my $self = shift;
-    Tangram::Expr::Select->new(@_)->execute($self, $self->open_connection());
+    Tangram::Select->new(@_)->execute($self, $self->open_connection());
 }
 
 sub selectall_arrayref
@@ -278,7 +277,7 @@ sub selectall_arrayref
 sub my_select_data
 {
     my $self = shift;
-    Tangram::Expr::Select->new(@_)->execute($self, $self->{db});
+    Tangram::Select->new(@_)->execute($self, $self->{db});
 }
 
 my $psi = 1;
@@ -1097,13 +1096,13 @@ sub select {
 sub cursor_object
   {
     my ($self, $class) = @_;
-    $self->{IMPLICIT}{$class} ||= Tangram::Expr::RDBObject->new($self, $class)
+    $self->{IMPLICIT}{$class} ||= Tangram::RDBObject->new($self, $class)
 }
 
 sub query_objects
 {
     my ($self, @classes) = @_;
-    map { Tangram::Expr::QueryObject->new(Tangram::Expr::RDBObject->new($self, $_)) } @classes;
+    map { Tangram::QueryObject->new(Tangram::RDBObject->new($self, $_)) } @classes;
 }
 
 sub remote
@@ -1135,9 +1134,9 @@ sub aggregate
     do {
 	$filter = $expr;
 	$expr = Tangram::Expr->new
-	    (Tangram::Type::Number->instance,
+	    (Tangram::Number->instance,
 	     '*', $filter->objects);
-    } if $expr->isa("Tangram::Expr::Filter");
+    } if $expr->isa("Tangram::Filter");
 
     my @data = $self->select(undef,
 			     ($filter ? (filter => $filter) : ()),
@@ -1519,6 +1518,31 @@ sub DESTROY
     } else {
 	print $Tangram::TRACE __PACKAGE__.": destroyed; no active handle\n"
 	    if $Tangram::TRACE;
+    }
+}
+
+package Tangram::Storage::Statement;
+
+sub new
+{
+    my $class = shift;
+    bless { @_ }, $class;
+}
+
+sub fetchrow
+{
+    return shift->{statement}->fetchrow;
+}
+
+sub close
+{
+    my $self = shift;
+
+    if ($self->{storage})
+    {
+	$self->{statement}->finish;
+	$self->{storage}->close_connection($self->{connection});
+	%$self = ();
     }
 }
 

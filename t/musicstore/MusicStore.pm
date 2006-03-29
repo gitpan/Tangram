@@ -2,7 +2,6 @@
 package MusicStore;
 
 use CD;
-use Tangram qw(:core :compat_quiet);
 use Tangram::Schema;
 use Tangram::IntrArray;
 use Tangram::TimePiece;
