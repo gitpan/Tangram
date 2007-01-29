@@ -6,14 +6,11 @@ use Tangram::Storage::Statement;
 
 use DBI;
 use Carp;
-use Tangram::Core;
+
+use Tangram::Util qw(pretty);
 use Scalar::Util qw(weaken refaddr);
 
 use vars qw( %storage_class );
-
-BEGIN {
-    *pretty = *Tangram::Core::pretty;
-}
 
 sub new
 {
@@ -21,6 +18,7 @@ sub new
     return bless { @_ }, $pkg;
 }
 
+# XXX - not tested by test suite
 sub schema
 {
     shift->{schema}
@@ -70,6 +68,7 @@ sub to_dbms
 	return $self->{driver}->to_dbms(@_);
     }
 
+# XXX - not tested by test suite
 sub get_sequence {
     my $self = shift;
     my $sequence_name = shift;
@@ -85,6 +84,7 @@ sub get_sequence {
     return $id;
 }
 
+# XXX - not tested by test suite
 sub sequence_sql
     {
 	my $self = shift;
@@ -92,6 +92,7 @@ sub sequence_sql
 	return $self->{driver}->sequence_sql(shift);
     }
 
+# XXX - not tested by test suite
 sub limit_sql {
     my $self = shift;
 
@@ -116,6 +117,7 @@ sub _open
 	  local $dbh->{PrintError} = 0;
 	  my $control;
 	  if ( $schema->{sql}{oid_sequence} ) {
+	      # XXX - not tested by test suite
 	      $control = "dummy";
 	  } else {
 	      $control = $dbh->selectall_arrayref
@@ -130,17 +132,18 @@ sub _open
 		$self->{import_id} = sub { shift() . sprintf("%0$self->{cid_size}d", shift()) };
 		$self->{export_id} = sub { substr shift(), 0, -$self->{cid_size} };
 	  } else {
-		$self->{class_col} = 'classId';
-		$self->{layout1} = 1;
-		$self->{import_id} = sub { shift() };
-		$self->{export_id} = sub { shift() };
+	      # XXX - layout1
+	      $self->{class_col} = 'classId';
+	      $self->{layout1} = 1;
+	      $self->{import_id} = sub { shift() };
+	      $self->{export_id} = sub { shift() };
 	  }
 	}
 
 	my %id2class;
 
 	if ($self->{layout1}) {
-	  # compatibility with version 1.x
+	    # XXX - layout1
 	  %id2class = map { @$_ } @{ $self->{db}->selectall_arrayref("SELECT classId, className FROM $schema->{class_table}") };
 	} else {
 	  my $classes = $schema->{classes};
@@ -203,6 +206,7 @@ sub alloc_table
 	    : ++$self->{table_top};
 }
 
+# XXX - not reached by test suite
 sub free_table
 {
     my $self = shift;
@@ -227,6 +231,7 @@ sub open_connection
     return $db;
 }
 
+# XXX - not reached by test suite
 sub close_connection
   {
     # private - close read connection to DB unless it's the default one
@@ -264,12 +269,14 @@ sub my_cursor
     return $cursor;
 }
 
+# XXX - not reached by test suite
 sub select_data
 {
     my $self = shift;
     Tangram::Expr::Select->new(@_)->execute($self, $self->open_connection());
 }
 
+# XXX - not reached by test suite
 sub selectall_arrayref
 {
     shift->select_data(@_)->fetchall_arrayref();
@@ -297,9 +304,10 @@ sub prepare
 *prepare_update = \&prepare;
 *prepare_select = \&prepare;
 
+# XXX - lots of options here not tested by test suite
 sub make_id
   {
-    my ($self, $class_id) = @_;
+    my ($self, $class_id, $o) = @_;
 
     # see if the class has its own ID generator
     my $cname = $self->{id2class}{$class_id};
@@ -307,7 +315,7 @@ sub make_id
 
     my $id;
     if ( $classdef->{make_id} ) {
-	$id = $classdef->{make_id}->($class_id, $self);
+	$id = $classdef->{make_id}->($class_id, $self, $o);
 	print $Tangram::TRACE "Tangram: custom per-class ($cname) make ID function returned ".(pretty($id))."\n" if $Tangram::TRACE;
     } elsif ( $classdef->{oid_sequence} ) {
 	eval { $id = $self->get_sequence($classdef->{oid_sequence}) };
@@ -316,7 +324,7 @@ sub make_id
 
     # maybe the entire schema has its own ID generator
     if ( !defined($id) and $self->{schema}{sql}{make_id} ) {
-	$id = $self->{schema}{sql}{make_id}->($class_id, $self);
+	$id = $self->{schema}{sql}{make_id}->($class_id, $self, $o);
 	print $Tangram::TRACE "Tangram: custom schema make ID function returned "
 	    .(pretty($id))."\n" if $Tangram::TRACE;
     } elsif ( !defined($id) &&
@@ -342,6 +350,8 @@ sub make_id
 
 	  return sprintf "%d%0$self->{cid_size}d", $id, $class_id;
 	}
+
+    # XXX - layout1
 
 	# ------------------------------
 	# compatibility with version 1.x
@@ -504,6 +514,7 @@ sub tx_commit
 	  delete $self->{alloc_id};
 	}
 	
+    # XXX - layout1
 	# compatibility with version 1.x
 	# ------------------------------
     
@@ -640,7 +651,7 @@ sub _insert
 
     my $class = $self->{schema}->classdef($class_name);
 
-    my $id = $self->make_id($classId);
+    my $id = $self->make_id($classId, $obj);
 
     $self->welcome($obj, $id);
     $self->tx_on_rollback( sub { $self->goodbye($obj, $id) } );
@@ -674,7 +685,8 @@ sub _insert
 		my @sql = $engine->get_insert_statements($class);
 		printf $Tangram::TRACE ">-\n%s\n".(@{$fields[$i]}?"-- with:\n    /* (%s) */\n":"%s")."...\n",
 		$sql[$i],
-		join(', ', map { $_ || 'NULL' } @state[ @{ $fields[$i] } ] )
+		join(', ', map { defined($_)?$dbh->quote($_):"NULL" }
+		     @state[ @{ $fields[$i] } ] )
 	  }
 
 	  my $sth = $sths->[$i];
@@ -752,7 +764,8 @@ sub _update
 		my @sql = $engine->get_update_statements($class);
 		printf $Tangram::TRACE ">-\n%s\n-- with\n    /* (%s) */\n...\n",
 		$sql[$i],
-		join(', ', map { $_ || 'NULL' } @state[ @{ $fields[$i] } ] )
+		join(', ', map { defined($_)?$dbh->quote($_):"NULL" }
+		     @state[ @{ $fields[$i] } ] )
 	  }
 
 	  my $sth = $sths->[$i];
@@ -764,6 +777,7 @@ sub _update
 #############################################################################
 # save
 
+# XXX - not documented / tested
 sub save
   {
     my $self = shift;
@@ -861,6 +875,7 @@ sub defer
 
 # Given a class' name and a row's ID (or more than one,)
 # computes the OIDs and returns them.
+# XXX - not tested by test suite
 sub make_oid
 {
   my $self = shift;
@@ -900,6 +915,7 @@ sub import_object
     }
 }
 
+# XXX - not documented or tested by test suite
 sub dummy_object
 {
     my $self = shift;
@@ -975,6 +991,7 @@ sub goodbye
     delete $self->{PREFETCH}{$id};
   }
 
+# XXX - not documented or tested by test suite
 sub shrink
   {
     my ($self) = @_;
@@ -996,24 +1013,51 @@ sub read_object
 
     my $schema = $self->{schema};
 
-    my $obj = $schema->{make_object}->($class);
+    my ($obj, $target, $is_dummy);
 
-    unless (exists $self->{objects}{$id} && defined $self->{objects}{$id}) {
-      # do this only if object is not loaded yet
-      # otherwise we're just skipping columns in $row
-      $self->welcome($obj, $id);
+    if (exists $self->{objects}{$id} && defined $self->{objects}{$id}) {
+	# it's already in the cache, just return it.
+	$obj = $self->{objects}{$id};
+
+	# XXX - we are only doing this because we don't have an easy
+	# way of knowing how many columns each of the importers for
+	# this column type are returning.  It would be better to
+	# improve the importer protocol, and then just shift off the
+	# unneeded columns.
+
+	# the only reason we need to shift them off is for
+	# $cursor->residue(), which would otherwise return a variable
+	# number of items depending on whether we already had the row
+	# hot or not.
+
+	$target = bless {}, "dummy";
+	if ( $Tangram::TRACE ) {
+	    print $Tangram::TRACE __PACKAGE__.": made dummy object "
+		."$target\n";
+	}
+	$is_dummy = 1;
+    } else {
+	# do this only if object is not loaded yet
+	$obj = $schema->{make_object}->($class);
+	$self->welcome($obj, $id);
+	$target = $obj;
     }
 
-    _row_to_object($self, $obj, $id, $class, $row, @parts);
-
+    _row_to_object($self, $target, $id, $class, $row, @parts);
+    CORE::bless $target, "dummy" if $is_dummy;
     return $obj;
   }
+{
+package dummy;
+sub AUTOLOAD { }
+}
 
 sub _row_to_object
   {
     my ($self, $obj, $id, $class, $row) = @_;
 	my $context = { storage => $self, id => $id, layout1 => $self->{layout1} };
 	$self->{schema}->classdef($class)->get_importer($context)->($obj, $row, $context);
+    # XXX - not documented, probably badly named.
     if (my $x=$obj->can("T2_import")) {
 	$x->($obj);
     }
@@ -1069,6 +1113,7 @@ sub select {
 	return $cursor->select(@args);
   }
   
+  # XXX - not tested by test suite
   my ($first, @others) = @$target;
   
   my @cache = map { $self->select( $_, @args ) } @others;
@@ -1094,6 +1139,7 @@ sub select {
   return @results;
 }
 
+# XXX - not tested by test suite
 sub cursor_object
   {
     my ($self, $class) = @_;
@@ -1118,6 +1164,7 @@ sub expr
     return shift->expr( @_ );
   }
 
+# XXX - not tested by test suite
 sub object
 {
     carp "cannot be called in list context; use objects instead" if wantarray;
@@ -1230,6 +1277,7 @@ sub _kind_class_ids
     return @ids;
 }
 
+# XXX - not tested by test suite
 sub is_persistent
 {
     my ($self, $obj) = @_;
@@ -1280,7 +1328,7 @@ sub connect
 
     @$self{ -cs, -user, -pw } = ($cs, $user, $pw);
 
-    $self->{driver} = $opts->{driver} || Tangram::Relational->new;
+    $self->{driver} = $opts->{driver} || Tangram::Relational->detect($cs);
 
     my $db = $opts->{dbh};
     unless ( $db ) {
@@ -1339,6 +1387,7 @@ sub sql_do
 	  : croak $DBI::errstr;
 }
 
+# XXX - not tested by test suite
 sub sql_selectall_arrayref
 {
     my ($self, $sql, $dbh) = @_;
@@ -1391,6 +1440,7 @@ sub unload
     }
   }
 
+# XXX - not tested by test suite
 sub unload_all {
     my $self = shift;
     my $send_method = shift;
@@ -1430,8 +1480,10 @@ sub unload_all {
     #$self->SUPER::unload_all();
 }
 
+# XXX - not reached (?)
 sub from_dual { "" }
 
+# XXX - not tested by test suite
 sub ping {
     my $self = shift;
 
@@ -1452,6 +1504,7 @@ sub ping {
     #}
 }
 
+# XXX - not tested by test suite
 sub recycle {
     my $self = shift;
     my $send_method = shift;
@@ -1463,11 +1516,13 @@ sub recycle {
 	if $Tangram::TRACE;
 }
 
+# XXX - wtf?
 sub clear_stats {
     my $self = shift;
     $self->{stats} = undef;
 }
 
+# XXX - wtf?
 sub add_stat {
     my $self = shift;
     my $stat = shift;

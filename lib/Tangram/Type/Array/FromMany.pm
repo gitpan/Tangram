@@ -20,6 +20,7 @@ sub reschema
 
 		unless (ref($def))
 		{
+		    # XXX - not reached by test suite
 			$def = { class => $def };
 			$members->{$member} = $def;
 		}
@@ -116,6 +117,7 @@ sub cursor
 	$cursor->{-coll_cols} = "t$coll_tid.$slot_col";
 	$cursor->{-coll_from} = "$table t$coll_tid";
 	$cursor->{-coll_where} = "t$coll_tid.$coll_col = $coll_id AND t$coll_tid.$item_col = t$item_tid.$storage->{schema}{sql}{id_col}";
+	$cursor->{-no_skip_read} = 1;
    
 	return $cursor;
 }
@@ -126,6 +128,7 @@ sub remote_expr
 	Tangram::Expr::Coll::FromMany->new($obj, $self);
 }
 
+# XXX - not reached by test suite
 sub query_expr
 {
 	my ($self, $obj, $members, $tid) = @_;

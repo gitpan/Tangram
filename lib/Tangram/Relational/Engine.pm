@@ -49,6 +49,7 @@ sub new {
 			 HETEROGENEITY => $heterogeneity }, $class;
 
     if ($opts{layout1}) {
+	# XXX - layout1
 	$engine->{layout1} = 1;
 	$engine->{TYPE_COL} = $schema->{sql}{class_col} || 'classId';
     } else {
@@ -56,10 +57,19 @@ sub new {
     }
 
     if ( $opts{driver} ) {
-	$engine->{driver} = $opts{driver};
-	print $Tangram::TRACE ref($opts{driver})." driver selected\n"
-	    if $Tangram::TRACE;
+	if ( ref $opts{driver} ) {
+	    $engine->{driver} = $opts{driver};
+	} else {
+	    # must be a package - new it
+	    $engine->{driver} = $opts{driver}->new;
+	}
+    } else {
+	# XXX - not reached in test suite
+	$engine->{driver} = Tangram::Relational->new();
     }
+    print $Tangram::TRACE __PACKAGE__.": "
+	.($engine->{driver}->name)." driver selected\n"
+	    if $Tangram::TRACE;
 
     for my $class ($schema->all_classes) {
 	$engine->{ROOT_TABLES}{$class->{table}} = 1

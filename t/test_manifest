@@ -1,6 +1,8 @@
 misc/new_opers.t
 misc/bughunt.t
+misc/include.t
 misc/new_types.t
+misc/back-inflation.t
 springfield/00-deploy.t
 springfield/01-mappings.t
 springfield/02-cursor.t
@@ -33,5 +35,6 @@ springfield/82-aggregate.t
 springfield/zz-retreat.t
 musicstore/00-deploy.t
 musicstore/01-simple.t
+musicstore/02-reorg.t
 musicstore/03-reschema.t
 musicstore/zz-retreat.t

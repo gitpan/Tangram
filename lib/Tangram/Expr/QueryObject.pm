@@ -3,6 +3,7 @@ package Tangram::Expr::QueryObject;
 use strict;
 use Tangram::Expr::Filter;
 use Carp;
+use Set::Object qw(set);
 
 sub new
 {
@@ -32,6 +33,7 @@ sub eq
 
 	if (!defined($other))
 	{
+	    # XXX - not reached by test suite
 		$self->{id} == undef
 	}
 	elsif ($other->isa('Tangram::Expr::QueryObject'))
@@ -46,6 +48,7 @@ sub eq
 	}
 }
 
+# XXX - not tested by test suite
 sub is_kind_of
 {
 	my ($self, $class) = @_;
@@ -61,6 +64,7 @@ sub is_kind_of
 }
 
 
+# XXX - not tested by test suite
 sub in
 {
 	my $self = shift;
@@ -125,6 +129,21 @@ sub count
 
 }
 
-use overload "==" => \&eq, "!=" => \&ne, fallback => 1;
+# XXX - not tested by test suite
+sub is_null
+{
+    my $self = shift;
+    Tangram::Expr::Filter->new
+	    ( expr => "$self->{id}{expr} IS NULL",
+	      tight => 100,
+	      objects => set($self->{id}->objects),
+	    );
+
+}
+
+use overload
+    "==" => \&eq, "!=" => \&ne,
+    "!" => \&is_null,
+    fallback => 1;
 
 1;

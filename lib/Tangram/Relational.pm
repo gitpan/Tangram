@@ -1,11 +1,15 @@
 
 
+package Tangram::Relational;
+
 use Tangram::Relational::Engine;
 
-package Tangram::Relational;
+use Carp qw(cluck);
+use strict;
 
 sub new { bless { }, shift }
 
+# XXX - not tested by test suite
 sub connect
   {
 	my ($pkg, $schema, $cs, $user, $pw, $opt) = @_;
@@ -32,6 +36,10 @@ sub _with_handle {
 	if (ref $arg) {
 	  Tangram::Relational::Engine->new($schema, driver => $self)->$method($arg)
 	} else {
+	    # try to automatically select the correct driver
+	    if ( !ref $self and $self eq __PACKAGE__ ) {
+		$self = $self->detect($arg);
+	    }
 	  my $dbh = DBI->connect($arg, @_);
 	  eval { Tangram::Relational::Engine->new($schema, driver => $self)->$method($dbh) };
 	  $dbh->disconnect();
@@ -42,6 +50,38 @@ sub _with_handle {
 	Tangram::Relational::Engine->new($schema, driver => $self)->$method();
   }
 }
+
+# XXX - not tested by test suite
+sub detect
+    {
+	my $self = shift;
+	my $dbi_cs = shift;
+	$dbi_cs =~ m{dbi:(\w+):} or return (ref $self || $self);
+	my $pkg = "Tangram::Driver::$1";
+	eval "use $pkg";
+	if ( !$@ ) {
+	    print $Tangram::TRACE
+		__PACKAGE__.": using the $pkg driver for $dbi_cs\n"
+		    if $Tangram::TRACE;
+	    return $pkg;
+	} else {
+	    return (ref $self || $self);
+	}
+    }
+
+# XXX - not tested by test suite
+sub name
+  {
+      my $self = shift;
+      my $pkg = (ref $self || $self);
+      if ( $pkg eq __PACKAGE__ ) {
+	  return "vanilla";
+      } elsif ( $pkg =~ m{::Driver::(.*)} ) {
+	  return $1;
+      } else {
+	  return $pkg;
+      }
+  }
 
 sub deploy
   {
@@ -60,25 +100,25 @@ our ($sql_t_qr, @sql_t);
 BEGIN {
     @sql_t =
 	(
-	 'VARCHAR'     => 'varchar',       # variable width
-	 'CHAR'        => 'char',          # fixed width
+	 'VARCHAR\s*(?:\(\s*\d+\s*\))?'     => 'varchar',       # variable width
+	 'CHAR\s*(?:\(\s*\d+\s*\))?'        => 'char',          # fixed width
 	 'BLOB'        => 'blob',          # generic, large data store
 	 'DATE|TIME|DATETIME|TIMESTAMP'
 	               => 'date',
 	 'BOOL'        => 'bool',
-	 'INT|SHORTINT|TINYINT|LONGINT|MEDIUMINT|SMALLINT'
+	 'INT(?:EGER)?|SHORTINT|TINYINT|LONGINT|MEDIUMINT|SMALLINT'
                        => 'integer',
 	 'DECIMAL|NUMERIC|FLOAT|REAL|DOUBLE|SINGLE|EXTENDED'
 	               => 'number',
 	 'ENUM|SET'    => 'special',
-	 ''            => 'general',
+	 '\w+\s*(?:\(\s*\d+\s*\))?' => 'general',
 	);
 
     # compile the types to a single regexp.
     {
 	my $c = 0;
 	$sql_t_qr = "^(?:".join("|", map { "($_)" } grep {(++$c)&1}
-				@sql_t).")";
+				@sql_t).")\\s*(?i:(?i:NOT\\s+)?NULL)?\\s*\$";
 
 	$sql_t_qr = qr/$sql_t_qr/i;
     }
@@ -91,17 +131,25 @@ sub type {
 
     my @x = ($type =~ m{$sql_t_qr});
 
-    my $c = 1;
-    $c+=2 while not defined shift @x;
+    my $c = @x ? 1 : @sql_t;
+    $c+=2 while not defined shift @x and @x;
 
-    my $func = $sql_t[$c];
-    return $self->$func($type);
-
+    my $func = $sql_t[$c] or do {
+	cluck "type '$type' didn't match $sql_t_qr";
+	return $type;
+    };
+    my $new_type = $self->$func($type);
+    if ( $Tangram::TRACE and $Tangram::DEBUG_LEVEL > 1 ) {
+	print $Tangram::TRACE
+	    __PACKAGE__.": re-wrote $type to $new_type via "
+		.ref($self)."::$func\n";
+    }
+    return $new_type;
 }
 
 # convert a value from an RDBMS format => an internal format
 sub from_dbms {
-    my $self = ( (ref $_[0] and UNIVERSAL::isa($_[0], __PACKAGE__))
+    my $self = ( UNIVERSAL::isa($_[0], __PACKAGE__)
 		 ? shift
 		 : __PACKAGE__);
     my $type = shift;
@@ -118,7 +166,7 @@ sub from_dbms {
 
 # convert a value from an internal format => an RDBMS format
 sub to_dbms {
-    my $self = ( (ref $_[0] and UNIVERSAL::isa($_[0], __PACKAGE__))
+    my $self = ( UNIVERSAL::isa($_[0], __PACKAGE__)
 		 ? shift
 		 : __PACKAGE__);
     my $type = shift;
@@ -150,21 +198,44 @@ sub to_date {
     return Date::Manip::UnixDate($value, '%Y-%m-%d %H:%M:%S');
 }
 
+# generic / fallback date handler.  Use Date::Manip to parse
+# `anything' and return a full ISO date
+# XXX - not tested by test suite
+sub from_date_hires {
+    my $self = shift;
+    my $value = shift;
+    $value =~ s{ }{T};
+    return $value;
+}
+
+# this one is a lot more restrictive.  Assume that no DBs understand T
+# in a date
+# XXX - not tested by test suite
+sub to_date_hires {
+    my $self = shift;
+    my $value = shift;
+    $value =~ s{T}{ };
+    return $value;
+}
+
 use Carp;
 
 # return a query to get a sequence value
+# XXX - not tested by test suite
 sub sequence_sql {
     my $self = shift;
     my $sequence_name = shift or confess "no sequence name?";
     return "SELECT $sequence_name.nextval";
 }
 
+# XXX - not tested by test suite
 sub mk_sequence_sql {
     my $self = shift;
     my $sequence_name = shift;
     return "CREATE SEQUENCE $sequence_name";
 }
 
+# XXX - not tested by test suite
 sub drop_sequence_sql {
     my $self = shift;
     my $sequence_name = shift;

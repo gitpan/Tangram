@@ -18,6 +18,7 @@ use vars qw( %TYPES );
 );
 
 use Scalar::Util qw(reftype weaken);
+use Tangram::Util qw(pretty);
 
 sub new
 {
@@ -99,9 +100,15 @@ sub new
 			    foreach (keys %$fields);
 		    }
 		}
+		die "'fields' must be a hash ref ($classdef->{name}), but is "
+		    .pretty($classdef->{fields})
+		    if defined $classdef->{fields} and
+			reftype $classdef->{fields} ne "HASH";
+
 		$classdef->{members} = $classdef->{fields};
 
 		my $cols = 0;
+
 
 		foreach my $typetag (keys %{$classdef->{members}})
 		{
@@ -190,18 +197,21 @@ sub classdef
 
 *get_class_by_name = \&classdef;
 
+# XXX - not tested by test suite
 sub classes
 {
    my ($self) = @_;
    return keys %{$self->{'classes'}};
 }
 
+# XXX - not tested by test suite
 sub direct_members
 {
    my ($self, $class) = @_;
    return $self->{'classes'}{$class}{member_type};
 }
 
+# XXX - not tested by test suite
 sub all_members
 {
    my ($self, $class) = @_;
@@ -217,6 +227,7 @@ sub all_members
 	$members;
 }
 
+# XXX - not tested by test suite
 sub all_bases
 {
    my ($self, $class) = @_;
@@ -224,6 +235,7 @@ sub all_bases
 	$self->visit_down($class, sub { @{ $classes->{shift()}{bases} } } );
 }
 
+# XXX - not tested by test suite
 sub find_member
 {
    my ($self, $class, $member) = @_;
@@ -266,6 +278,7 @@ sub find_member_class
    $result;
 }
 
+# XXX - not tested by test suite
 sub visit_up
 {
    my ($self, $class, $fun) = @_;
@@ -314,6 +327,7 @@ sub _visit_down
    @results
 }
 
+# XXX - not tested by test suite
 sub for_bases
 {
    my ($self, $class, $fun) = @_;
@@ -366,6 +380,7 @@ sub _for_each_spec
 
 }
 
+# XXX - not tested by test suite
 sub declare_classes
 {
    my ($self, $root) = @_;
@@ -384,6 +399,7 @@ sub declare_classes
    }
 }
 
+# XXX - not tested by test suite
 sub is_persistent
 {
    my ($self, $x) = @_;

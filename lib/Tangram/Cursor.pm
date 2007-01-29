@@ -73,10 +73,14 @@ sub select
 	my ($inner_objects, $outer_objects)
 	    = (Set::Object->new(), Set::Object->new());
 
+	#kill 2, $$;
 	if (exists $args{retrieve}) {
 	    $self->retrieve( @{ $args{retrieve} } );
-	    # assume that objects are outside the query until joined
-	    $outer_objects->insert
+	    # assume that objects are inside the query until joined.
+	    my $which = ($self->{TARGET}
+			 ? $outer_objects
+			 : $inner_objects);
+	    $which->insert
 		( map { $_->{objects}->members }
 		  @{ $args{retrieve} } );
 	}
@@ -100,20 +104,30 @@ sub select
 
 	# anything mentioned in the `outer_filter' is part of the
 	# outer query
+	#kill 2, $$;
+	my $is_outer;
+	if ( my $forced_outer = $args{force_outer} ) {
+	    my @outer = ( map { $_->object }
+			  ( ref $forced_outer eq "ARRAY"
+			    ? @$forced_outer
+			    : $forced_outer));
+	    $is_outer = 1;
+	    $inner_objects->remove(@outer);
+	    $outer_objects->insert(@outer);
+	    $filter->{objects}->remove(@outer);
+	}
 	if (my $outer_filter = $args{outer_filter}) {
 	    #kill 2, $$;
-	    if ( my $forced_outer = $args{force_outer} ) {
-		$inner_objects->remove(map { $_->object }
-				       @$forced_outer);
-	    }
 
 	    $outer = Tangram::Expr::Filter->new( tight => 100,
 					   objects => $outer_objects );
 	    $outer->{expr} = $outer_filter->{expr};
 	    $outer->{objects}->insert($outer_filter->{objects}->members);
 	    $outer->{objects}->remove($inner_objects->members);
+	    $is_outer = 1;
 
-	} elsif ( $outer_objects->size ) {
+	}
+	if ( !$is_outer and $outer_objects->size ) {
 
 	    # If there is no outer query, then we must add the
 	    # selected tables to the inner query part.
@@ -143,7 +157,10 @@ sub select
 					( $outer
 					  ? ([ $outer->from ],
 					     [ $outer->where ],
-					    ) : () )
+					    ) : () ),
+					($args{force_outer}
+					 ? (any_outer => 1)
+					 : () )
 				      ),
 		   undef, $_ ]
 	     } @polysel
@@ -162,6 +179,7 @@ sub execute
 	$self->prepare_next_statement() && $self->next();
   }
 
+# XXX - not reached by test suite
 sub sql_string
   {
       my $self = shift;
@@ -212,15 +230,14 @@ sub prepare_next_statement
 
 sub build_select
 {
-	my ($self, $template, $cols, $from, $where, $ofrom, $owhere)
-	    = @_;
+	my ($self, $template, $cols, $from, $where, $ofrom, $owhere,
+	    @options) = @_;
 
 	if (my $retrieve = $self->{-retrieve})
 	{
 		@$cols = map { $_->{expr} } @$retrieve;
 	}
 
-	my @options;
 	# this needs a hack to get right...
 	if ( $self->{-limit} ) {
 	    @options = $self->{STORAGE}->limit_sql($self->{-limit});
@@ -269,12 +286,25 @@ sub _next
 
 	    my $class = $storage->{id2class}{$classId} or die "unknown class id $classId";
 
-	    # even if object is already loaded we must read it so that @rpw only contains residue
-	    my $obj = $storage->read_object($id, $class, $state);
+	    my $obj = $storage->{objects}{$id};
+
+	    # even if object is already loaded we must read it so that
+	    # @row only contains residue, with -retrieve, and so that
+	    # any foreign/intrusive collections can get the
+	    # information they need.
+	    if ( !defined($obj) or $self->{-retrieve} or
+		 $self->{-no_skip_read} ) {
+		print $Tangram::TRACE __PACKAGE__.": reading object $id\n"
+		    if $Tangram::TRACE and $Tangram::DEBUG_LEVEL > 0;
+		$obj = $storage->read_object($id, $class, $state);
+	    } else {
+		print $Tangram::TRACE __PACKAGE__.": not reading object $id\n"
+		    if $Tangram::TRACE and $Tangram::DEBUG_LEVEL > 0;
+		# just pretend we did it.
+		@row = ();
+	    }
 
 	    # if object is already loaded return previous copy
-	    $obj = $storage->{objects}{$id} if exists $storage->{objects}{$id};
-
 	    $self->{-current} = $obj;
 
 	} else {
@@ -326,6 +356,7 @@ sub residue
 	@{shift->{-residue}};
 }
 
+# XXX - not reached by test suite
 sub object
 {
 	my ($self) = @_;

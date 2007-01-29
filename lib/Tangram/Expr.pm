@@ -12,6 +12,8 @@ use Tangram::Expr::Select;
 use Set::Object qw(blessed);
 use Carp;
 
+# WARNING - many 'core' functions are redefined in this namespace.
+
 sub new
 {
 	my ($pkg, $type, $expr, @objects) = @_;
@@ -25,11 +27,13 @@ sub expr
 	return shift->{expr};
 }
 
+# XXX - not tested by test suite
 sub storage
 {
 	return ((shift->{objects}->members)[0] or confess 'no storage')->storage;
 }
 
+# XXX - not tested by test suite
 sub type
 {
 	return shift->{type};
@@ -53,6 +57,7 @@ sub ne
 }
 
 # BEGIN ks.perl@kurtstephens.com 2002/06/25
+# XXX - not tested by test suite
 sub lt
 {
 	my ($self, $arg, $swap) = @_;
@@ -71,12 +76,14 @@ sub gt
 	return $self->binop('>', $arg, undef, $swap);
 }
 
+# XXX - not tested by test suite
 sub ge
 {
 	my ($self, $arg, $swap) = @_;
 	return $self->binop('>=', $arg, undef, $swap);
 }
 
+# XXX - not tested by test suite
 sub add
 {
     my ($self, $arg) = @_;
@@ -84,6 +91,7 @@ sub add
 }
 
 
+# XXX - not tested by test suite
 sub subt
 {
     my ($self, $arg, $swap) = @_;
@@ -91,6 +99,7 @@ sub subt
 }
 
 
+# XXX - not tested by test suite
 sub mul
 {
     my ($self, $arg) = @_;
@@ -98,6 +107,7 @@ sub mul
 }
 
 
+# XXX - not tested by test suite
 sub div
 {
     my ($self, $arg, $swap) = @_;
@@ -105,6 +115,7 @@ sub div
 }
 
 
+# XXX - not tested by test suite
 sub cos
 {
     my ($self) = @_;
@@ -112,19 +123,28 @@ sub cos
 }
 
 
+# XXX - not tested by test suite
 sub sin
 {
     my ($self) = @_;
     $self->unaop('SIN', 100);
 }
 
+# XXX - not tested by test suite
 sub acos
 {
     my ($self) = @_;
     $self->unaop('ACOS', 100);
 }
 
+# XXX - not tested by test suite
+sub not
+{
+    my ($self) = @_;
+    $self->unaop('NOT', 100);
+}
 
+# XXX - not tested by test suite
 sub unaop
 {
     my ($self, $op, $tight) = @_;
@@ -133,8 +153,10 @@ sub unaop
     my $objects = Set::Object->new(@objects);
     my $storage = $self->{storage};
     
-    return new Tangram::Expr::Filter(expr => "$op($self->{expr})", tight => $tight || 100,
-			       objects => $objects );
+    return new Tangram::Expr::Filter
+	(expr => "$op($self->{expr})",
+	 tight => $tight || 100,
+	 objects => $objects );
 }
 
 
@@ -153,13 +175,13 @@ sub binop
 			if ($arg->isa('Tangram::Expr'))
 			{
 				$objects->insert($arg->objects);
-				$arg = $arg->{expr};
+				$arg = $arg->expr;
 			}
    
 			elsif ($arg->isa('Tangram::Expr::QueryObject'))
 			{
 				$objects->insert($arg->object);
-				$arg = $arg->{id}->{expr};
+				$arg = $arg->{id}->expr;
 			}
    
 			elsif (exists $storage->{schema}{classes}{$type})
@@ -169,6 +191,7 @@ sub binop
 
 			else
 			{
+			    # XXX - not reached by test suite
 			    $arg = $self->{type}->literal($arg, $storage);
 			}
 		}
@@ -179,6 +202,7 @@ sub binop
 	}
 	else
 	{
+                # XXX - not wholly tested by test suite
 		$op = $op eq '=' ? 'IS' : $op eq '<>' ? 'IS NOT' : Carp::confess("unknown op $op");
 		$arg = 'NULL';
 	}
@@ -201,6 +225,7 @@ sub like
 }
 
 
+# XXX - not tested by test suite - MySQL specific
 sub regexp_like
 {
 	my ($self, $val) = @_;
@@ -231,6 +256,7 @@ sub count
 				$self->objects );
 }
 
+# XXX - not tested by test suite
 sub as_string
 {
 	my $self = shift;
@@ -261,7 +287,7 @@ sub in
 			    # FIXME - what about table aliases?  Hmm...
 			    map {( blessed($_)
 				   ? $storage->export_object($_)
-				   : $_ )}
+				   : $storage->{db}->quote($_) )}
 			    @items )
 		     . ')');
 	} else {
@@ -277,6 +303,7 @@ sub in
 
 }
 
+# XXX - not tested by test suite
 sub log {
     my $self = shift;
     my $base = shift || exp(1);
@@ -320,6 +347,7 @@ use overload
 	"gt" => \&gt,
 	">=" => \&ge,
 	"ge" => \&ge,
+	"!"  => \&not,
 	'""' => \&as_string,
 	fallback => 1;
 
